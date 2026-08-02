@@ -10,11 +10,19 @@ cluster_note "installing pinned tools"
 "$mise_bin" trust "$CLUSTER_REPO_ROOT/mise.toml" >/dev/null
 "$mise_bin" -C "$CLUSTER_REPO_ROOT" install
 
+# On the first mise run, the task process can start before mise finishes
+# creating the project venv. Always target its interpreter explicitly so
+# packages never leak into mise's shared base Python installation.
+venv_python="$CLUSTER_REPO_ROOT/.venv/bin/python"
+if [ ! -x "$venv_python" ]; then
+  base_python="$("$mise_bin" -C "$CLUSTER_REPO_ROOT" which python)"
+  "$base_python" -m venv "$CLUSTER_REPO_ROOT/.venv"
+fi
+
 cluster_note "installing pinned MLX packages"
-"$mise_bin" -C "$CLUSTER_REPO_ROOT" exec -- \
-  python -m pip install --upgrade pip
-"$mise_bin" -C "$CLUSTER_REPO_ROOT" exec -- \
-  python -m pip install -r "$CLUSTER_REPO_ROOT/cluster/requirements.txt"
+"$venv_python" -m ensurepip --upgrade
+"$venv_python" -m pip install --upgrade pip
+"$venv_python" -m pip install -r "$CLUSTER_REPO_ROOT/cluster/requirements.txt"
 
 if [ -L "$shared_root" ]; then
   current_target="$(readlink "$shared_root")"
@@ -29,7 +37,7 @@ else
 fi
 
 cluster_note "verifying MLX"
-"$mise_bin" -C "$CLUSTER_REPO_ROOT" exec -- python - <<'PY'
+"$venv_python" - <<'PY'
 import mlx.core as mx
 import mlx_lm
 

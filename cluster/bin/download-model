@@ -1,0 +1,20 @@
+#!/bin/bash
+
+set -euo pipefail
+source "$(cd "$(dirname "$0")/.." && pwd -P)/lib/common.sh"
+cluster_load_config
+
+model="$CLUSTER_MODEL"
+if [ "${1:-}" = "--fast" ]; then
+  model="$CLUSTER_MODEL_FAST"
+elif [ -n "${1:-}" ]; then
+  cluster_die "usage: mise run cluster:download-model [--fast]"
+fi
+
+cluster_note "downloading $model on the controller"
+cluster_python -c 'from huggingface_hub import snapshot_download; import sys; print(snapshot_download(sys.argv[1]))' "$model"
+
+cluster_note "downloading $model on the worker"
+cluster_remote "'$CLUSTER_SHARED_ROOT/cluster/bin/node-python' -c 'from huggingface_hub import snapshot_download; import sys; print(snapshot_download(sys.argv[1]))' '$model'"
+
+cluster_note "model is present on both Macs"

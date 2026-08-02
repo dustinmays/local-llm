@@ -60,6 +60,10 @@ The 8-bit model is the default validation target. The 4-bit model is a faster
 alternative. A 70-72B 4-bit model can be introduced only after the cluster and
 tool calling pass all tests.
 
+LM Studio, Ollama, and Hugging Face use different model storage layouts. A
+model visible in another application is not necessarily available to
+`mlx_lm`. The cluster check verifies the Hugging Face cache used by `mlx_lm`.
+
 ## One-time setup
 
 ### 1. Enable Remote Login on the M4
@@ -163,6 +167,19 @@ mise run cluster:worker-setup
 This validates the existing repository at `/Users/dustin/repos/local-llm`,
 installs the pinned mise environment, and creates the M4's
 `/Users/Shared/local-llm` link. It deliberately performs no GitHub operations.
+
+Ensure the exact 8-bit model is in the Hugging Face cache on both Macs:
+
+```bash
+mise run cluster:download-model
+```
+
+This may download about 32.5 GB on a machine where the model is only present in
+another application's private storage. To prepare the 4-bit alternative too:
+
+```bash
+mise run cluster:download-model-fast
+```
 
 ### 6. Enable Thunderbolt RDMA on both Macs
 

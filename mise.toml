@@ -22,6 +22,14 @@ run = "./cluster/bin/ssh-setup"
 description = "Install dependencies from the worker's existing repository clone"
 run = "./cluster/bin/worker-setup"
 
+[tasks."cluster:download-model"]
+description = "Download the default 8-bit model on both Macs"
+run = "./cluster/bin/download-model"
+
+[tasks."cluster:download-model-fast"]
+description = "Download the fast 4-bit model on both Macs"
+run = "./cluster/bin/download-model --fast"
+
 [tasks."cluster:check"]
 description = "Validate both Macs, SSH, MLX, RDMA, models, and paths"
 run = "./cluster/bin/check"
