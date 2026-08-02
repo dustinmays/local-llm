@@ -8,8 +8,10 @@ cluster_require_hostfile
 model="$CLUSTER_MODEL"
 if [ "${1:-}" = "--fast" ]; then
   model="$CLUSTER_MODEL_FAST"
+elif [ "${1:-}" = "--test" ]; then
+  model="$CLUSTER_MODEL_TEST"
 elif [ -n "${1:-}" ]; then
-  cluster_die "usage: mise run cluster:start [--fast]"
+  cluster_die "usage: start [--fast|--test]"
 fi
 
 if cluster_launcher_running; then
@@ -21,6 +23,7 @@ fi
 
 mkdir -p "$CLUSTER_RUN_DIR"
 : > "$CLUSTER_LOGFILE"
+rm -f "$CLUSTER_MODEL_FILE"
 
 if command -v llm-serve-stop >/dev/null 2>&1; then
   cluster_note "stopping LM Studio to free memory"
@@ -54,6 +57,7 @@ nohup "$(cluster_mise)" -C "$CLUSTER_REPO_ROOT" exec -- mlx.launch \
   > "$CLUSTER_LOGFILE" 2>&1 &
 launcher_pid=$!
 printf '%s\n' "$launcher_pid" > "$CLUSTER_PIDFILE"
+printf '%s\n' "$model" > "$CLUSTER_MODEL_FILE"
 
 cluster_note "launcher PID $launcher_pid; model loading can take several minutes"
 cluster_note "log: $CLUSTER_LOGFILE"
@@ -61,16 +65,70 @@ cluster_note "log: $CLUSTER_LOGFILE"
 attempt=0
 while [ "$attempt" -lt 90 ]; do
   if cluster_server_up; then
-    cluster_note "ready: http://$CLUSTER_API_HOST:$CLUSTER_API_PORT/v1"
-    exit 0
+    break
   fi
   if ! kill -0 "$launcher_pid" 2>/dev/null; then
     tail -n 80 "$CLUSTER_LOGFILE" >&2
-    rm -f "$CLUSTER_PIDFILE"
+    cluster_cleanup_ranks
+    rm -f "$CLUSTER_PIDFILE" "$CLUSTER_MODEL_FILE"
     cluster_die "launcher exited while loading"
   fi
   attempt=$((attempt + 1))
   sleep 2
 done
 
-cluster_warn "server is still loading; follow it with 'mise run cluster:logs'"
+if ! cluster_server_up; then
+  cluster_cleanup_ranks
+  rm -f "$CLUSTER_PIDFILE" "$CLUSTER_MODEL_FILE"
+  tail -n 60 "$CLUSTER_LOGFILE" >&2
+  cluster_die "server socket did not become available within 3 minutes"
+fi
+
+# /v1/models is available before mlx_lm's background loader finishes. Make one
+# real request and only report readiness after sharded loading and generation
+# both succeed.
+probe_file="$CLUSTER_RUN_DIR/readiness.json"
+probe_error="$CLUSTER_RUN_DIR/readiness.error"
+rm -f "$probe_file" "$probe_error"
+curl -fsS --max-time 600 \
+  "http://$CLUSTER_API_HOST:$CLUSTER_API_PORT/v1/chat/completions" \
+  -H 'Content-Type: application/json' \
+  -d "{\"model\":\"$model\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with one word: ready\"}],\"temperature\":0,\"max_tokens\":4}" \
+  > "$probe_file" 2> "$probe_error" &
+probe_pid=$!
+
+while kill -0 "$probe_pid" 2>/dev/null; do
+  if grep -Eq 'does not support (tensor parallelism|pipelining|any sharding)|Exception in thread' "$CLUSTER_LOGFILE"; then
+    kill -TERM "$probe_pid" 2>/dev/null || true
+    wait "$probe_pid" 2>/dev/null || true
+    cluster_cleanup_ranks
+    rm -f "$CLUSTER_PIDFILE" "$CLUSTER_MODEL_FILE"
+    tail -n 60 "$CLUSTER_LOGFILE" >&2
+    cluster_die "distributed model load failed"
+  fi
+  if ! kill -0 "$launcher_pid" 2>/dev/null; then
+    kill -TERM "$probe_pid" 2>/dev/null || true
+    wait "$probe_pid" 2>/dev/null || true
+    cluster_cleanup_ranks
+    rm -f "$CLUSTER_PIDFILE" "$CLUSTER_MODEL_FILE"
+    tail -n 60 "$CLUSTER_LOGFILE" >&2
+    cluster_die "launcher exited during readiness generation"
+  fi
+  sleep 2
+done
+
+if ! wait "$probe_pid"; then
+  cluster_cleanup_ranks
+  rm -f "$CLUSTER_PIDFILE" "$CLUSTER_MODEL_FILE"
+  cat "$probe_error" >&2
+  cluster_die "readiness generation failed"
+fi
+
+if ! cluster_python -c 'import json,sys; d=json.load(open(sys.argv[1])); assert d.get("choices")' "$probe_file"; then
+  cluster_cleanup_ranks
+  rm -f "$CLUSTER_PIDFILE" "$CLUSTER_MODEL_FILE"
+  cat "$probe_file" >&2
+  cluster_die "readiness response contained no completion"
+fi
+
+cluster_note "ready: generated successfully at http://$CLUSTER_API_HOST:$CLUSTER_API_PORT/v1"

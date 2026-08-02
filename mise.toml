@@ -30,6 +30,10 @@ run = "./cluster/bin/download-model"
 description = "Download the fast 4-bit model on both Macs"
 run = "./cluster/bin/download-model --fast"
 
+[tasks."cluster:download-model-test"]
+description = "Download a small known-shardable model on both Macs"
+run = "./cluster/bin/download-model --test"
+
 [tasks."cluster:check"]
 description = "Validate both Macs, SSH, MLX, RDMA, models, and paths"
 run = "./cluster/bin/check"
@@ -53,6 +57,10 @@ run = "./cluster/bin/start"
 [tasks."cluster:start-fast"]
 description = "Start the distributed 4-bit MLX server"
 run = "./cluster/bin/start --fast"
+
+[tasks."cluster:start-test"]
+description = "Start the small known-shardable distributed test model"
+run = "./cluster/bin/start --test"
 
 [tasks."cluster:stop"]
 description = "Stop the distributed MLX server and both ranks"

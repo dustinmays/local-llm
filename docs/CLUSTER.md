@@ -60,6 +60,12 @@ The 8-bit model is the default validation target. The 4-bit model is a faster
 alternative. A 70-72B 4-bit model can be introduced only after the cluster and
 tool calling pass all tests.
 
+> **Compatibility note:** `Qwen3-Coder-30B-A3B-Instruct` uses MLX's
+> `qwen3_moe` implementation. In `mlx-lm` 0.31.3 that implementation supports
+> neither tensor nor pipeline sharding, so it remains a single-Mac LM Studio
+> model. The cluster uses `Llama-3.2-3B-Instruct-4bit` for its inexpensive
+> end-to-end validation before selecting a shardable 70-72B target.
+
 LM Studio, Ollama, and Hugging Face use different model storage layouts. A
 model visible in another application is not necessarily available to
 `mlx_lm`. The cluster check verifies the Hugging Face cache used by `mlx_lm`.
@@ -255,6 +261,19 @@ rank=1 size=2 ... all_sum=3
 ```
 
 Do not proceed if only one rank appears or the command hangs.
+
+Download and start the small known-shardable server test:
+
+```bash
+mise run cluster:download-model-test
+mise run cluster:start-test
+mise run cluster:test
+mise run cluster:stop
+```
+
+Startup does not treat the model-list endpoint as proof of health. It sends a
+real chat completion and reports readiness only after sharded loading and token
+generation succeed.
 
 ### 9. Install the OpenCode configuration
 

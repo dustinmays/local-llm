@@ -6,12 +6,15 @@ cluster_load_config
 
 pid="$(cluster_read_pid || true)"
 if [ -z "$pid" ]; then
-  cluster_note "no launcher PID recorded"
+  cluster_cleanup_ranks
+  rm -f "$CLUSTER_MODEL_FILE"
+  cluster_note "no launcher PID recorded; cleaned any managed orphan ranks"
   exit 0
 fi
 if ! kill -0 "$pid" 2>/dev/null; then
-  rm -f "$CLUSTER_PIDFILE"
-  cluster_note "removed stale PID file"
+  cluster_cleanup_ranks
+  rm -f "$CLUSTER_PIDFILE" "$CLUSTER_MODEL_FILE"
+  cluster_note "removed stale PID file and cleaned managed orphan ranks"
   exit 0
 fi
 
@@ -26,5 +29,6 @@ if kill -0 "$pid" 2>/dev/null; then
   cluster_warn "launcher did not exit; inspect $CLUSTER_LOGFILE before using force"
   exit 1
 fi
-rm -f "$CLUSTER_PIDFILE"
+cluster_cleanup_ranks
+rm -f "$CLUSTER_PIDFILE" "$CLUSTER_MODEL_FILE"
 cluster_note "stopped"

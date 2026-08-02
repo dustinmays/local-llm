@@ -39,6 +39,7 @@ cluster_load_config() {
   : "${CLUSTER_TRANSPORT:?missing CLUSTER_TRANSPORT}"
   : "${CLUSTER_MODEL:?missing CLUSTER_MODEL}"
   : "${CLUSTER_MODEL_FAST:?missing CLUSTER_MODEL_FAST}"
+  : "${CLUSTER_MODEL_TEST:?missing CLUSTER_MODEL_TEST}"
   : "${CLUSTER_SHARED_ROOT:?missing CLUSTER_SHARED_ROOT}"
 
   CLUSTER_API_HOST="${CLUSTER_API_HOST:-127.0.0.1}"
@@ -50,6 +51,7 @@ cluster_load_config() {
   CLUSTER_WORKER_SSH="$CLUSTER_WORKER_ALIAS"
   CLUSTER_HOSTFILE="$CLUSTER_GENERATED_DIR/hosts-$CLUSTER_BACKEND.json"
   CLUSTER_PIDFILE="$CLUSTER_RUN_DIR/server.pid"
+  CLUSTER_MODEL_FILE="$CLUSTER_RUN_DIR/server.model"
   CLUSTER_LOGFILE="$CLUSTER_RUN_DIR/server.log"
 }
 
@@ -96,4 +98,14 @@ cluster_launcher_running() {
   local pid
   pid="$(cluster_read_pid)" || return 1
   kill -0 "$pid" 2>/dev/null
+}
+
+cluster_cleanup_ranks() {
+  # The API port uniquely identifies this managed server. mlx.launch can exit
+  # before cleaning a rank whose background model-loader thread failed, so
+  # terminate only mlx_lm server processes carrying this exact port.
+  # Bracket the first character so pkill's own command line cannot match.
+  local pattern="[m]lx_lm server .*--port $CLUSTER_API_PORT"
+  pkill -TERM -f "$pattern" 2>/dev/null || true
+  cluster_remote "pkill -TERM -f '$pattern' 2>/dev/null || true" 2>/dev/null || true
 }

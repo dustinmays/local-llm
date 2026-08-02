@@ -6,7 +6,12 @@ cluster_load_config
 
 cluster_server_up || cluster_die "cluster API is not ready; run 'mise run cluster:start'"
 
+model="$CLUSTER_MODEL"
+if [ -s "$CLUSTER_MODEL_FILE" ]; then
+  model="$(sed -n '1p' "$CLUSTER_MODEL_FILE")"
+fi
+
 curl -fsS "http://$CLUSTER_API_HOST:$CLUSTER_API_PORT/v1/chat/completions" \
   -H 'Content-Type: application/json' \
-  -d "{\"model\":\"$CLUSTER_MODEL\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly: cluster ready\"}],\"temperature\":0,\"max_tokens\":16}" \
+  -d "{\"model\":\"$model\",\"messages\":[{\"role\":\"user\",\"content\":\"Reply with exactly: cluster ready\"}],\"temperature\":0,\"max_tokens\":16}" \
   | cluster_python -m json.tool

@@ -10,6 +10,10 @@ else
   printf 'launcher: stopped\n'
 fi
 
+if [ -s "$CLUSTER_MODEL_FILE" ]; then
+  printf 'model:    %s\n' "$(sed -n '1p' "$CLUSTER_MODEL_FILE")"
+fi
+
 if cluster_server_up; then
   printf 'api:      ready (http://%s:%s/v1)\n' "$CLUSTER_API_HOST" "$CLUSTER_API_PORT"
   curl -fsS "http://$CLUSTER_API_HOST:$CLUSTER_API_PORT/v1/models" | cluster_python -m json.tool
