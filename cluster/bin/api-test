@@ -6,7 +6,7 @@ cluster_load_config
 
 cluster_server_up || cluster_die "cluster API is not ready; run 'mise run cluster:start'"
 
-model="$CLUSTER_MODEL"
+model="$CLUSTER_MODEL_LARGE"
 if [ -s "$CLUSTER_MODEL_FILE" ]; then
   model="$(sed -n '1p' "$CLUSTER_MODEL_FILE")"
 fi

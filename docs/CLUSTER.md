@@ -49,16 +49,16 @@ the lifetime of the server, and both must have the complete model on disk.
 - Homebrew, Git, and mise installed on both machines.
 - The same Hugging Face MLX model repositories cached on both machines.
 
-The initial models are:
+The cluster models are configured in `cluster/config.local.env`:
 
 ```text
-mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit
-mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit
+CLUSTER_MODEL_LARGE="mlx-community/Llama-3.3-70B-Instruct-4bit"
+CLUSTER_MODEL_TEST="mlx-community/Llama-3.2-3B-Instruct-4bit"
 ```
 
-The 8-bit model is the default validation target. The 4-bit model is a faster
-alternative. A 70-72B 4-bit model can be introduced only after the cluster and
-tool calling pass all tests.
+The normal download and start commands use `CLUSTER_MODEL_LARGE`; changing that
+one value changes the managed target without editing a script. The `--test`
+path remains a small, inexpensive end-to-end diagnostic.
 
 > **Compatibility note:** `Qwen3-Coder-30B-A3B-Instruct` uses MLX's
 > `qwen3_moe` implementation. In `mlx-lm` 0.31.3 that implementation supports
@@ -178,18 +178,16 @@ This validates the existing repository at `/Users/dustin/repos/local-llm`,
 installs the pinned mise environment, and creates the M4's
 `/Users/Shared/local-llm` link. It deliberately performs no GitHub operations.
 
-Ensure the exact 8-bit model is in the Hugging Face cache on both Macs:
+After the small-model cluster test passes, download the configured large model
+to the Hugging Face cache on both Macs:
 
 ```bash
 mise run cluster:download-model
 ```
 
-This may download about 32.5 GB on a machine where the model is only present in
-another application's private storage. To prepare the 4-bit alternative too:
-
-```bash
-mise run cluster:download-model-fast
-```
+The command reads `CLUSTER_MODEL_LARGE` from the gitignored local configuration
+and downloads the exact same repository revision on each Mac. Expect a large
+download on each machine.
 
 ### 6. Enable Thunderbolt RDMA on both Macs
 
@@ -300,21 +298,18 @@ reads its own configuration and talks to the cluster endpoint.
 
 Restart T3 after installing the configuration. In a new OpenCode thread,
 choose **MLX Cluster (M5 + M4)** and the model matching the running server.
+The installer renders both cluster model entries from `CLUSTER_MODEL_LARGE`
+and `CLUSTER_MODEL_TEST`; no model ID needs to be duplicated in the OpenCode
+template.
 
 ## Daily operation
 
 Run all management commands from the M5 repository.
 
-Start the default distributed 8-bit model:
+Start the configured large model:
 
 ```bash
 mise run cluster:start
-```
-
-Start the faster distributed 4-bit model instead:
-
-```bash
-mise run cluster:start-fast
 ```
 
 Startup performs these actions:
@@ -323,8 +318,9 @@ Startup performs these actions:
 2. Unloads and stops LM Studio on both Macs.
 3. Starts one MLX rank per Mac through `mlx.launch`.
 4. Keeps both machines awake with `caffeinate` while ranks exist.
-5. Waits for `http://127.0.0.1:8080/v1/models` to respond.
-6. Records the controller launcher PID and log under `cluster/run/`.
+5. Sends a real completion and waits for loading and generation to succeed.
+6. Records the controller launcher PID, active model, and log under
+   `cluster/run/`.
 
 Inspect status and make a small API request:
 
@@ -373,7 +369,7 @@ mise run cluster:start
 OpenCode model:
 
 ```text
-mlxcluster/mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit
+mlxcluster/mlx-community/Llama-3.3-70B-Instruct-4bit
 ```
 
 ### Update both machines
@@ -499,10 +495,10 @@ ssh mlx-m4 "ps aux | grep '[m]lx_lm server'"
 
 Avoid broad `pkill python` commands; they can terminate unrelated work.
 
-## Adding a 70-72B model
+## Changing the large model
 
-Do this only after the 30B 8-bit model passes `cluster:smoke`, `cluster:test`,
-and a real OpenCode tool-use task.
+Do this only after the small diagnostic model passes `cluster:smoke` and
+`cluster:test`.
 
 A 70-72B 4-bit model typically occupies roughly 38-42 GB total, or about
 19-21 GB of resident weights per rank, leaving useful headroom for KV cache and
@@ -513,10 +509,9 @@ For a new model:
 1. Choose an MLX repository whose architecture supports distributed sharding.
 2. Download the identical repository revision on both Macs.
 3. Confirm the complete model exists in both Hugging Face caches.
-4. Change `CLUSTER_MODEL` in `cluster/config.local.env`.
-5. Add the same exact model ID under `mlxcluster.models` in
-   `config/opencode.json`, including conservative context and output limits.
-6. Reinstall the OpenCode config and restart the cluster.
+4. Change `CLUSTER_MODEL_LARGE` in `cluster/config.local.env`.
+5. Run `mise run opencode:install` to render the new model into OpenCode.
+6. Restart T3 and the cluster.
 7. Test chat completion and structured tool calls before unattended use.
 
 ## Security and recovery notes

@@ -5,13 +5,11 @@ source "$(cd "$(dirname "$0")/.." && pwd -P)/lib/common.sh"
 cluster_load_config
 cluster_require_hostfile
 
-model="$CLUSTER_MODEL"
-if [ "${1:-}" = "--fast" ]; then
-  model="$CLUSTER_MODEL_FAST"
-elif [ "${1:-}" = "--test" ]; then
+model="$CLUSTER_MODEL_LARGE"
+if [ "${1:-}" = "--test" ]; then
   model="$CLUSTER_MODEL_TEST"
 elif [ -n "${1:-}" ]; then
-  cluster_die "usage: start [--fast|--test]"
+  cluster_die "usage: start [--test]"
 fi
 
 if cluster_launcher_running; then

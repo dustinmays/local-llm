@@ -4,13 +4,11 @@ set -euo pipefail
 source "$(cd "$(dirname "$0")/.." && pwd -P)/lib/common.sh"
 cluster_load_config
 
-model="$CLUSTER_MODEL"
-if [ "${1:-}" = "--fast" ]; then
-  model="$CLUSTER_MODEL_FAST"
-elif [ "${1:-}" = "--test" ]; then
+model="$CLUSTER_MODEL_LARGE"
+if [ "${1:-}" = "--test" ]; then
   model="$CLUSTER_MODEL_TEST"
 elif [ -n "${1:-}" ]; then
-  cluster_die "usage: download-model [--fast|--test]"
+  cluster_die "usage: download-model [--test]"
 fi
 
 cluster_note "downloading $model on the controller"

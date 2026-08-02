@@ -256,8 +256,8 @@ The setup is managed through pinned mise tasks:
 mise run cluster:check
 mise run cluster:configure
 mise run cluster:smoke
-mise run cluster:start        # 8-bit
-mise run cluster:start-fast   # 4-bit
+mise run cluster:download-model # configured large target, on both Macs
+mise run cluster:start          # configured large target
 mise run cluster:status
 mise run cluster:stop
 ```

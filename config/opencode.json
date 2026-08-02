@@ -25,22 +25,7 @@
         "apiKey": "local-mlx-cluster",
         "timeout": 600000
       },
-      "models": {
-        "mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit": {
-          "name": "Qwen3 Coder 30B A3B (8-bit, distributed)",
-          "limit": {
-            "context": 65536,
-            "output": 4096
-          }
-        },
-        "mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit": {
-          "name": "Qwen3 Coder 30B A3B (4-bit, distributed fast)",
-          "limit": {
-            "context": 65536,
-            "output": 4096
-          }
-        }
-      }
+      "models": {}
     }
   },
   "model": "lmstudio/qwen3-coder-30b-a3b-instruct@4bit"
