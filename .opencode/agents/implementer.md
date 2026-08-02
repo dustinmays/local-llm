@@ -30,4 +30,3 @@ Then:
 8. Finish with the change summary, validation result, commit, and PR URL.
 
 Never write into the main checkout from an assigned worktree. Never discard existing user changes or use destructive Git commands. Do not stop after implementation, validation, commit, or push: continue through pull-request creation.
-
