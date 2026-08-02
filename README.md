@@ -1,17 +1,19 @@
 # local-llm
 
-Running LLMs **locally** on Apple Silicon — a fast daily-driver chat/coding model plus an
-agentic coding setup (opencode), with no cloud, no API keys, and no data leaving the machine.
+Running LLMs **locally** on Apple Silicon — a fast single-Mac coding model and a
+two-Mac distributed inference cluster, both available to OpenCode without cloud
+API keys or data leaving the machines.
 
 It's built on [MLX](https://github.com/ml-explore/mlx), Apple's ML framework that runs on
-the unified-memory GPU of M-series chips. One model (Qwen3-Coder-30B) in two precisions
-covers everything.
+the unified-memory GPU of M-series chips. Qwen3-Coder-30B is the single-Mac
+daily driver; a Thunderbolt-connected M5 Pro and M4 Pro combine their resources
+for a configurable, tensor-sharded 70B-class model.
 
-**This machine:** Apple M5 Pro · 48 GB unified memory · macOS 26.4.
+**Cluster:** Apple M5 Pro · 48 GB controller + Apple M4 Pro · 48 GB worker.
 
 ---
 
-## How it fits together
+## How the single-Mac path fits together
 
 Read this first — the rest of the doc makes more sense once the layers are clear.
 
@@ -49,7 +51,7 @@ symlinks, so it costs no extra disk.
 
 ---
 
-## The model: Qwen3-Coder-30B-A3B-Instruct
+## Single-Mac model: Qwen3-Coder-30B-A3B-Instruct
 
 One coding-specialized Mixture-of-Experts model (30.5B total params, ~3.3B active per token —
 so it's fast despite its size), run at two precisions:
@@ -59,15 +61,17 @@ so it's fast despite its size), run at two precisions:
 | **Daily driver** (fast) | `qwen3-coder-30b-a3b-instruct@4bit` | `mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit` | 17.2 GB |
 | **High quality** (slow) | `qwen3-coder-30b-a3b-instruct@8bit` | `mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit` | 32.5 GB |
 
-- Native context 256K; we load it at 128K (4-bit) / 64K (8-bit) — see [Context & RAM](#context--ram).
+- Native context 256K; we load it at 128K (4-bit) / 64K (8-bit) — see
+  [Single-Mac context and RAM](#single-mac-context--ram).
 - Emits **proper structured tool calls**, so it drives opencode reliably.
 - Apache-2.0.
 
-See [Why this model](#why-this-model) for the alternatives that were ruled out.
+See [Why the single-Mac model](#why-the-single-mac-model) for the alternatives
+that were ruled out.
 
 ---
 
-## Requirements
+## Single-Mac requirements
 
 - A Mac with **Apple Silicon** (M1 or newer) — will not work on Intel.
 - macOS 13.5+ · [Homebrew](https://brew.sh).
@@ -75,7 +79,7 @@ See [Why this model](#why-this-model) for the alternatives that were ruled out.
 
 ---
 
-## Setup from scratch
+## Single-Mac setup from scratch
 
 A totally-fresh-machine path. Run from the repo root unless noted. Steps 1–3 are terminal-only;
 step 4 needs one click in the LM Studio GUI (called out below).
@@ -177,7 +181,7 @@ lms ps                        # CONTEXT column should read 131072
 
 ---
 
-## Daily use
+## Single-Mac daily use
 
 Every new terminal prints a reminder:
 
@@ -218,7 +222,7 @@ chat
 
 ---
 
-## Agentic coding with opencode
+## Single-Mac agentic coding with OpenCode
 
 opencode talks to the same LM Studio endpoint (config: `~/.config/opencode/opencode.json`,
 mirrored in [`config/opencode.json`](config/opencode.json)).
@@ -250,23 +254,103 @@ M4 Pro connected directly by Thunderbolt 5. The cluster uses MLX's JACCL/RDMA
 backend and the OpenAI-compatible `mlx_lm.server`; it does not use LM Studio for
 distributed inference.
 
-The setup is managed through pinned mise tasks:
+The current targets are defined only in the controller's gitignored
+`cluster/config.local.env`:
 
 ```bash
-mise run cluster:check
+CLUSTER_MODEL_LARGE="mlx-community/Llama-3.3-70B-Instruct-4bit"
+CLUSTER_MODEL_TEST="mlx-community/Llama-3.2-3B-Instruct-4bit"
+```
+
+`CLUSTER_MODEL_LARGE` drives the downloader, prerequisite check, launcher, API
+test, and generated OpenCode configuration. Change that one value to swap the
+large model; no executable script contains its model ID.
+
+Qwen3-Coder-30B remains available through LM Studio on either individual Mac,
+but its `qwen3_moe` implementation in the pinned `mlx-lm` release cannot be
+tensor- or pipeline-sharded. The small Llama model is the inexpensive cluster
+diagnostic; the configured Llama 3.3 70B model is the normal distributed target.
+Each Mac needs a complete on-disk Hugging Face snapshot even though MLX shards
+the resident weights across their combined 96 GB of unified memory. Allow
+roughly 40 GB of free disk per Mac for the selected 70B 4-bit model.
+
+### Initial cluster validation
+
+After completing SSH, RDMA, and topology setup from the full guide, validate
+communication and real distributed generation before downloading a large model:
+
+```bash
 mise run cluster:configure
 mise run cluster:smoke
-mise run cluster:download-model # configured large target, on both Macs
-mise run cluster:start          # configured large target
-mise run cluster:status
+mise run cluster:download-model-test
+mise run cluster:start-test
+mise run cluster:test
 mise run cluster:stop
 ```
 
+`cluster:start-test` reports ready only after a real chat completion succeeds;
+the model-list endpoint alone is not considered proof that loading worked.
+
+### Download and run the large model
+
+Run management commands from the M5 controller. The download command fetches
+`CLUSTER_MODEL_LARGE` into each Mac's Hugging Face cache and resumes cached or
+interrupted downloads:
+
+```bash
+mise run cluster:download-model
+mise run cluster:check
+mise run cluster:start
+mise run cluster:test
+mise run cluster:status
+mise run cluster:logs          # follow logs; Ctrl-C only stops following
+mise run cluster:stop
+```
+
+Always stop the cluster before disconnecting Thunderbolt, closing either lid,
+rebooting, or returning to LM Studio. Startup unloads LM Studio on both Macs to
+free memory and binds the cluster API only to `http://127.0.0.1:8080/v1` on the
+M5.
+
+### T3 Code / OpenCode
+
+Generate the OpenCode model entries from the same two model variables:
+
+```bash
+mise run opencode:install
+```
+
+The installer timestamps a backup of the current OpenCode configuration. After
+restarting T3 Code, select **MLX Cluster (M5 + M4)** and the model currently
+reported by `mise run cluster:status`.
+
+### Cluster mise commands
+
+| Command | Purpose |
+|---------|---------|
+| `mise run setup` | Install the pinned Python/MLX environment on the current Mac |
+| `mise run cluster:init` | Create the controller's gitignored local configuration |
+| `mise run cluster:ssh-setup` | Install dedicated passwordless controller-to-worker SSH |
+| `mise run cluster:worker-setup` | Bootstrap the M4 from its existing repository clone |
+| `mise run cluster:topology` | Inspect Thunderbolt interfaces without changing them |
+| `mise run cluster:configure` | Configure JACCL interfaces and generate the MLX hostfile |
+| `mise run cluster:smoke` | Exercise a two-rank MLX collective operation |
+| `mise run cluster:download-model-test` | Cache the small diagnostic model on both Macs |
+| `mise run cluster:start-test` | Start the small model and verify real generation |
+| `mise run cluster:download-model` | Cache `CLUSTER_MODEL_LARGE` on both Macs |
+| `mise run cluster:check` | Check SSH, paths, MLX, RDMA, and the large-model caches |
+| `mise run cluster:start` | Start `CLUSTER_MODEL_LARGE` across both ranks |
+| `mise run cluster:test` | Send a chat completion to the active cluster model |
+| `mise run cluster:status` | Show launcher, active model, API, and worker status |
+| `mise run cluster:logs` | Follow the distributed server log |
+| `mise run cluster:stop` | Stop the launcher and clean managed ranks on both Macs |
+| `mise run opencode:install` | Back up and regenerate the OpenCode configuration |
+
 See **[Two-Mac MLX cluster](docs/CLUSTER.md)** for the full one-time setup,
 Recovery-mode RDMA step, SSH bootstrap, T3/OpenCode configuration, daily
-operation, failure recovery, and the path to a 70-72B model.
+operation, cleanup commands, and failure recovery.
 
-### Overnight / unattended runs
+## Single-Mac overnight / unattended runs
 
 Speed doesn't matter, so use the 8-bit:
 
@@ -283,7 +367,7 @@ Give it a small, well-scoped task and walk away. For very large contexts you can
 
 ## Reference
 
-### Context & RAM
+### Single-Mac context & RAM
 
 KV cache is ~96 KB/token, so **RAM ≈ weights + context×96 KB**. Loaded contexts are chosen to
 stay safely under 48 GB:
@@ -301,14 +385,15 @@ for bigger repos only if the total stays under ~44 GB.
 | Path | What |
 |------|------|
 | `shell/llm.zsh` | the `ask`/`chat`/`llm-serve` commands (sourced from `~/.zshrc`) |
-| `config/` | reference copies of the two config files below |
+| `config/` | LM Studio config and the OpenCode template |
+| `cluster/config.local.env` | gitignored controller settings and model variables |
 | `~/Library/Application Support/io.datasette.llm/extra-openai-models.yaml` | tells `llm` how to reach LM Studio |
 | `~/.config/opencode/opencode.json` | tells opencode how to reach LM Studio |
 | `~/.lmstudio/models/mlx-community/*` | symlinks → the HF weights (LM Studio's view) |
 | `~/.cache/huggingface/hub/*` | the actual model weights |
 | `.venv/` | Python env (mlx, mlx-lm, llm, llm-mlx) |
 
-### Swapping in a different model
+### Swapping the single-Mac model
 
 The shell helpers reference **aliases**, so swapping is cheap:
 
@@ -317,7 +402,7 @@ The shell helpers reference **aliases**, so swapping is cheap:
 - **Warm path:** put `<new>` in `~/.lmstudio/models/…`, load it in LM Studio, and update the
   `model_name` in `extra-openai-models.yaml`.
 
-### Why this model
+### Why the single-Mac model
 
 - **Skip Qwen2.5-Coder-32B** (previous gen): it emits tool calls as *plain text* and **breaks
   in opencode**. The Qwen3 generation fixed this.
