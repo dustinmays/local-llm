@@ -132,8 +132,12 @@ Enter the M4 login password once. The task creates:
 
 - `~/.ssh/id_ed25519_local_llm_cluster`
 - `~/.ssh/config.d/local-llm-cluster`
-- the `mlx-m4` SSH alias
+- the `mlx-m5` and `mlx-m4` SSH aliases
 - an idempotent entry in the M4's `~/.ssh/authorized_keys`
+
+Apple's topology utility connects to every listed rank through SSH, including
+rank 0. The same dedicated public key is therefore authorized locally on the
+M5 for the `mlx-m5` loopback alias.
 
 Verify it manually if desired:
 

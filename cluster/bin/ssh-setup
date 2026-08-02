@@ -24,6 +24,12 @@ if ! grep -Eq '^[[:space:]]*Include[[:space:]]+~/.ssh/config.d/\*' "$ssh_dir/con
 fi
 
 cat > "$ssh_fragment" <<EOF
+Host $CLUSTER_CONTROLLER_ALIAS
+    HostName $CLUSTER_CONTROLLER_HOST
+    User $CLUSTER_CONTROLLER_USER
+    IdentityFile $CLUSTER_SSH_KEY
+    IdentitiesOnly yes
+
 Host $CLUSTER_WORKER_ALIAS
     HostName $CLUSTER_WORKER_HOST
     User $CLUSTER_WORKER_USER
@@ -34,12 +40,21 @@ Host $CLUSTER_WORKER_ALIAS
 EOF
 chmod 600 "$ssh_fragment"
 
+# distributed_config uses SSH for rank 0 too. Authorize the dedicated key on
+# the controller without opening another login path or requiring a password.
+touch "$ssh_dir/authorized_keys"
+chmod 600 "$ssh_dir/authorized_keys"
+local_key="$(sed -n '1p' "$pubkey")"
+grep -qxF "$local_key" "$ssh_dir/authorized_keys" || printf '%s\n' "$local_key" >> "$ssh_dir/authorized_keys"
+
 cluster_note "installing the cluster key; enter the M4 password once"
-ssh "$CLUSTER_WORKER_USER@$CLUSTER_WORKER_HOST" \
+ssh -i "$CLUSTER_SSH_KEY" -o IdentitiesOnly=yes "$CLUSTER_WORKER_USER@$CLUSTER_WORKER_HOST" \
   'umask 077; mkdir -p ~/.ssh; touch ~/.ssh/authorized_keys; key=$(cat); grep -qxF "$key" ~/.ssh/authorized_keys || printf "%s\n" "$key" >> ~/.ssh/authorized_keys' \
   < "$pubkey"
 
 cluster_note "testing unattended SSH"
-ssh -o BatchMode=yes -o ConnectTimeout=8 "$CLUSTER_WORKER_ALIAS" \
+ssh -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=accept-new "$CLUSTER_CONTROLLER_ALIAS" \
+  'printf "controller: %s (%s)\n" "$(scutil --get LocalHostName)" "$(sw_vers -productVersion)"'
+ssh -o BatchMode=yes -o ConnectTimeout=8 -o StrictHostKeyChecking=accept-new "$CLUSTER_WORKER_ALIAS" \
   'printf "worker: %s (%s)\n" "$(scutil --get LocalHostName)" "$(sw_vers -productVersion)"'
 cluster_note "SSH setup complete"
