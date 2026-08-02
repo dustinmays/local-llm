@@ -344,9 +344,39 @@ Generate all three OpenCode model entries from the shared profile variables:
 mise run opencode:install
 ```
 
-The installer timestamps a backup of the current OpenCode configuration. After
-restarting T3 Code, select **MLX Cluster (M5 + M4)** and the model currently
-reported by `mise run cluster:status`.
+The installer timestamps a backup of the current OpenCode configuration and
+preserves its existing `permission` policy while refreshing model entries.
+After restarting T3 Code, select **MLX Cluster (M5 + M4)** and the model
+currently reported by `mise run cluster:status`.
+
+#### OpenCode permission-policy starter
+
+[`config/opencode.permissions.template.jsonc`](config/opencode.permissions.template.jsonc)
+is a conservative, valid JSONC policy starter for trusted development
+repositories. It allows repository-local reads and edits plus a small set of
+read-only Git commands, asks about ambiguous operations, and denies sensitive,
+external, privileged, and destructive operations. Merge its `permission`
+object into the target repository's `opencode.jsonc`, then inspect the resolved
+configuration:
+
+```bash
+cd /path/to/target-repository
+opencode debug config | jq '.permission'
+```
+
+Use
+[`prompts/design-opencode-permissions.md`](prompts/design-opencode-permissions.md)
+in a strong Claude or Codex session rooted in the target repository to audit
+its scripts and propose exact allowances for tests, linting, builds, task
+runners, and other normal work. The prompt requires a reviewable proposal and
+does not authorize the reviewing agent to install it.
+
+Permission patterns are workflow guardrails rather than an OS sandbox. Do not
+use the template with `opencode --auto` unless OpenCode itself is isolated.
+Also note that, as of August 2, 2026, T3 Code's OpenCode adapter overwrites
+configured permissions with a per-session catch-all; see
+[T3 Code issue #5164](https://github.com/pingdotgg/t3code/issues/5164). Until
+that is fixed, use direct OpenCode for policy enforcement or keep T3 supervised.
 
 ### Cluster mise commands
 

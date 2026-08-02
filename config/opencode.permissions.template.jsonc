@@ -1,0 +1,114 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // Conservative starting point for a trusted development repository.
+  // Copy only this `permission` object into the target project's opencode.json(c),
+  // then tailor the allowlist with prompts/design-opencode-permissions.md.
+  //
+  // Rules are evaluated in order and the LAST matching rule wins. Keep the
+  // catch-all first and the strongest command-specific denies last.
+  //
+  // This is a workflow guardrail, not a security sandbox. A shell can express
+  // the same operation in many ways. Do not combine this template with
+  // `opencode --auto` unless the agent also runs inside an OS-level sandbox.
+  "permission": {
+    "*": "ask",
+
+    "read": {
+      "*": "allow",
+      "*.env": "deny",
+      "*.env.*": "deny",
+      "*.env.example": "allow",
+      "*.pem": "deny",
+      "*.p12": "deny",
+      "*.key": "deny",
+      "*/.git/*": "deny"
+    },
+
+    // Coding agents need to edit the working tree. Sensitive files remain
+    // blocked, and CI workflow changes receive human review.
+    "edit": {
+      "*": "allow",
+      "*.env": "deny",
+      "*.env.*": "deny",
+      "*.env.example": "allow",
+      "*.pem": "deny",
+      "*.p12": "deny",
+      "*.key": "deny",
+      "*/.git/*": "deny",
+      "*.github/workflows/*": "ask"
+    },
+
+    "glob": "allow",
+    "grep": "allow",
+    "lsp": "allow",
+    "codesearch": "allow",
+    "task": "allow",
+    "skill": "allow",
+    "question": "allow",
+    "websearch": "allow",
+    "webfetch": "ask",
+    "external_directory": "deny",
+    "doom_loop": "deny",
+
+    "bash": {
+      "*": "ask",
+
+      // Low-risk inspection. Add project-specific read-only commands here.
+      "pwd": "allow",
+      "ls": "allow",
+      "ls *": "allow",
+      "git status": "allow",
+      "git status *": "allow",
+      "git diff": "allow",
+      "git diff *": "allow",
+      "git log": "allow",
+      "git log *": "allow",
+      "git show *": "allow",
+      "git blame *": "allow",
+      "git rev-parse *": "allow",
+      "git ls-files *": "allow",
+      "git branch": "allow",
+      "git branch --show-current": "allow",
+      "git remote -v": "allow",
+      "git remote get-url *": "allow",
+
+      // CUSTOMIZE: add exact test, lint, typecheck, and build commands only
+      // after reviewing the target repository's scripts and task definitions.
+      // Examples:
+      // "pnpm test *": "allow",
+      // "go test *": "allow",
+      // "mise run test *": "allow",
+
+      // Irreversible, credential-bearing, privileged, or remote destructive
+      // operations stay blocked. Keep these entries after broader allows.
+      "sudo *": "deny",
+      "doas *": "deny",
+      "rm -rf *": "deny",
+      "rm -fr *": "deny",
+      "/bin/rm -rf *": "deny",
+      "/bin/rm -fr *": "deny",
+      "chmod -R *": "deny",
+      "chown *": "deny",
+      "git reset --hard": "deny",
+      "git reset --hard *": "deny",
+      "git clean *": "deny",
+      "git restore *": "deny",
+      "git checkout -- *": "deny",
+      "git push --force*": "deny",
+      "git push -f *": "deny",
+      "git branch -D *": "deny",
+      "git reflog expire *": "deny",
+      "gh auth token*": "deny",
+      "gh repo delete *": "deny",
+      "gh release delete *": "deny",
+      "gh secret set *": "deny",
+      "gh secret delete *": "deny",
+      "pnpm publish*": "deny",
+      "npm publish*": "deny",
+      "go env -w *": "deny",
+      "mise use -g *": "deny",
+      "mise uninstall *": "deny"
+    }
+  }
+}

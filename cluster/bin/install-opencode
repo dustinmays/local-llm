@@ -13,11 +13,21 @@ if [ -f "$destination" ]; then
 fi
 cluster_python - "$CLUSTER_REPO_ROOT/config/opencode.json" "$destination" "$CLUSTER_MODEL_FAST" "$CLUSTER_MODEL_OVERNIGHT" "$CLUSTER_MODEL_TEST" <<'PY'
 import json
+import os
 import sys
 
 source, destination, fast_model, overnight_model, test_model = sys.argv[1:]
 with open(source) as handle:
     config = json.load(handle)
+
+# Model refreshes must not silently discard a permission policy that was
+# tailored for this machine or repository. The timestamped backup above is
+# still retained for recovery.
+if os.path.isfile(destination):
+    with open(destination) as handle:
+        existing = json.load(handle)
+    if "permission" in existing:
+        config["permission"] = existing["permission"]
 
 def entry(model, suffix, context):
     label = model.rsplit("/", 1)[-1].replace("-", " ")
