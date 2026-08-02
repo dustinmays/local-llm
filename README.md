@@ -7,7 +7,7 @@ API keys or data leaving the machines.
 It's built on [MLX](https://github.com/ml-explore/mlx), Apple's ML framework that runs on
 the unified-memory GPU of M-series chips. Qwen3-Coder-30B is the single-Mac
 daily driver; a Thunderbolt-connected M5 Pro and M4 Pro combine their resources
-for a configurable, tensor-sharded 70B-class model.
+for configurable, tensor-sharded models up to a 122B mixture-of-experts profile.
 
 **Cluster:** Apple M5 Pro · 48 GB controller + Apple M4 Pro · 48 GB worker.
 
@@ -254,35 +254,34 @@ M4 Pro connected directly by Thunderbolt 5. The cluster uses MLX's JACCL/RDMA
 backend and the OpenAI-compatible `mlx_lm.server`; it does not use LM Studio for
 distributed inference.
 
-The current targets are defined only in the controller's gitignored
-`cluster/config.local.env`:
+The shared profiles live in tracked `cluster/models.env`, so both clones use
+the same model IDs:
 
 ```bash
-CLUSTER_MODEL_LARGE="mlx-community/Llama-3.3-70B-Instruct-4bit"
+CLUSTER_MODEL_FAST="mlx-community/Qwen3.5-35B-A3B-4bit"
+CLUSTER_MODEL_OVERNIGHT="mlx-community/Qwen3.5-122B-A10B-4bit"
 CLUSTER_MODEL_TEST="mlx-community/Llama-3.2-3B-Instruct-4bit"
 ```
 
-`CLUSTER_MODEL_LARGE` drives the downloader, prerequisite check, launcher, API
-test, and generated OpenCode configuration. Change that one value to swap the
-large model; no executable script contains its model ID.
+The 35B-A3B profile is the interactive coding model: roughly 20.4 GB of 4-bit
+weights and about 3B active parameters per token. The 122B-A10B profile is the
+slower overnight model: roughly 69.6 GB and about 10B active parameters. Both
+use MLX's shardable `qwen3_5_moe` implementation and tool-aware templates.
 
 Qwen3-Coder-30B remains available through LM Studio on either individual Mac,
 but its `qwen3_moe` implementation in the pinned `mlx-lm` release cannot be
-tensor- or pipeline-sharded. The small Llama model is the inexpensive cluster
-diagnostic; the configured Llama 3.3 70B model is the normal distributed target.
-Each Mac needs a complete on-disk Hugging Face snapshot even though MLX shards
-the resident weights across their combined 96 GB of unified memory. Allow
-roughly 40 GB of free disk per Mac for the selected 70B 4-bit model.
+tensor- or pipeline-sharded. Each Mac needs a complete on-disk snapshot even
+though MLX shards resident weights across their combined 96 GB of memory.
 
 ### Initial cluster validation
 
 After completing SSH, RDMA, and topology setup from the full guide, validate
-communication and real distributed generation before downloading a large model:
+communication and real distributed generation before downloading production models:
 
 ```bash
 mise run cluster:configure
 mise run cluster:smoke
-mise run cluster:download-model-test
+mise run model:download-test       # run locally on each Mac
 mise run cluster:start-test
 mise run cluster:test
 mise run cluster:stop
@@ -291,21 +290,46 @@ mise run cluster:stop
 `cluster:start-test` reports ready only after a real chat completion succeeds;
 the model-list endpoint alone is not considered proof that loading worked.
 
-### Download and run the large model
+### Download models independently
 
-Run management commands from the M5 controller. The download command fetches
-`CLUSTER_MODEL_LARGE` into each Mac's Hugging Face cache and resumes cached or
-interrupted downloads:
+First stop any active cluster from the M5:
 
 ```bash
-mise run cluster:download-model
+mise run cluster:stop
+```
+
+Then, in a normal interactive terminal on **each Mac**, update the clone,
+remove the two Llama caches, and start the independent downloads:
+
+```bash
+git pull --ff-only
+mise run model:remove-llama
+mise run model:download-all
+```
+
+Cleanup prints the exact cache paths and sizes and requires typing
+`remove llama`; it refuses to run while a Llama server is active. The download
+task fetches fast and overnight profiles sequentially on that Mac, uses Hugging
+Face's resumable cache, and keeps the machine awake with `caffeinate`.
+
+### Run and validate a profile
+
+Run cluster management from the M5 controller:
+
+```bash
 mise run cluster:check
-mise run cluster:start
+mise run cluster:start-fast
 mise run cluster:test
+mise run cluster:test-tools
+mise run cluster:benchmark
 mise run cluster:status
 mise run cluster:logs          # follow logs; Ctrl-C only stops following
 mise run cluster:stop
 ```
+
+For the overnight profile, substitute `cluster:check-overnight` and
+`cluster:start-overnight`. `cluster:test-tools` passes only when the model
+returns a structured function call that OpenCode can execute.
 
 Always stop the cluster before disconnecting Thunderbolt, closing either lid,
 rebooting, or returning to LM Studio. Startup unloads LM Studio on both Macs to
@@ -314,7 +338,7 @@ M5.
 
 ### T3 Code / OpenCode
 
-Generate the OpenCode model entries from the same two model variables:
+Generate all three OpenCode model entries from the shared profile variables:
 
 ```bash
 mise run opencode:install
@@ -335,12 +359,18 @@ reported by `mise run cluster:status`.
 | `mise run cluster:topology` | Inspect Thunderbolt interfaces without changing them |
 | `mise run cluster:configure` | Configure JACCL interfaces and generate the MLX hostfile |
 | `mise run cluster:smoke` | Exercise a two-rank MLX collective operation |
-| `mise run cluster:download-model-test` | Cache the small diagnostic model on both Macs |
+| `mise run model:download-fast` | Cache the fast profile on this Mac only |
+| `mise run model:download-overnight` | Cache the overnight profile on this Mac only |
+| `mise run model:download-all` | Cache fast then overnight on this Mac only |
+| `mise run model:remove-llama` | Interactively remove managed Llama caches on this Mac |
 | `mise run cluster:start-test` | Start the small model and verify real generation |
-| `mise run cluster:download-model` | Cache `CLUSTER_MODEL_LARGE` on both Macs |
-| `mise run cluster:check` | Check SSH, paths, MLX, RDMA, and the large-model caches |
-| `mise run cluster:start` | Start `CLUSTER_MODEL_LARGE` across both ranks |
+| `mise run cluster:check` | Validate both Macs and fast-profile caches |
+| `mise run cluster:check-overnight` | Validate both Macs and overnight-profile caches |
+| `mise run cluster:start` / `cluster:start-fast` | Start the fast profile across both ranks |
+| `mise run cluster:start-overnight` | Start the overnight profile across both ranks |
 | `mise run cluster:test` | Send a chat completion to the active cluster model |
+| `mise run cluster:test-tools` | Require a structured function call from the active model |
+| `mise run cluster:benchmark` | Measure uncached prompt and generation latency |
 | `mise run cluster:status` | Show launcher, active model, API, and worker status |
 | `mise run cluster:logs` | Follow the distributed server log |
 | `mise run cluster:stop` | Stop the launcher and clean managed ranks on both Macs |

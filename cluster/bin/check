@@ -4,6 +4,10 @@ set -euo pipefail
 source "$(cd "$(dirname "$0")/.." && pwd -P)/lib/common.sh"
 cluster_load_config
 
+profile="${1:---fast}"
+profile="${profile#--}"
+model="$(cluster_model_for_profile "$profile")"
+
 failures=0
 check_ok() { printf '  ok   %s\n' "$*"; }
 check_bad() { printf '  FAIL %s\n' "$*" >&2; failures=$((failures + 1)); }
@@ -21,8 +25,11 @@ fi
 if [ -L "$CLUSTER_SHARED_ROOT" ] && [ "$(cd "$CLUSTER_SHARED_ROOT" && pwd -P)" = "$CLUSTER_REPO_ROOT" ]; then check_ok "$CLUSTER_SHARED_ROOT points to this clone"; else check_bad "run 'mise run setup' to create $CLUSTER_SHARED_ROOT"; fi
 if cluster_python -c 'import mlx.core as mx; assert mx.distributed.is_available()'; then check_ok "MLX distributed available"; else check_bad "MLX distributed unavailable"; fi
 
-local_model_dir="$(cluster_model_cache_dir "$CLUSTER_MODEL_LARGE")"
-if [ -d "$local_model_dir" ]; then check_ok "large model cached"; else check_bad "missing $CLUSTER_MODEL_LARGE"; fi
+if cluster_python "$CLUSTER_REPO_ROOT/cluster/python/validate_model_cache.py" "$model"; then
+  check_ok "$profile model cached"
+else
+  check_bad "missing or incomplete $model"
+fi
 
 if [ "$CLUSTER_BACKEND" = jaccl ]; then
   if ibv_devices 2>/dev/null | grep -q 'rdma_'; then check_ok "Thunderbolt RDMA devices visible"; else check_bad "no RDMA devices; enable rdma_ctl in Recovery and connect the TB5 cable"; fi
@@ -44,8 +51,11 @@ if cluster_remote 'true'; then
   if cluster_remote "test -e '$CLUSTER_SHARED_ROOT/mise.toml'"; then check_ok "$CLUSTER_SHARED_ROOT exists"; else check_bad "run 'mise run cluster:worker-setup'"; fi
   if cluster_remote "'$CLUSTER_SHARED_ROOT/cluster/bin/node-python' -c 'import mlx.core as mx; assert mx.distributed.is_available()'"; then check_ok "MLX distributed available"; else check_bad "run 'mise run cluster:worker-setup'"; fi
 
-  remote_model_dir="/Users/$CLUSTER_WORKER_USER/.cache/huggingface/hub/models--${CLUSTER_MODEL_LARGE//\//--}"
-  if cluster_remote "test -d '$remote_model_dir'"; then check_ok "large model cached"; else check_bad "missing $CLUSTER_MODEL_LARGE on worker"; fi
+  if cluster_remote "'$CLUSTER_SHARED_ROOT/cluster/bin/node-python' '$CLUSTER_SHARED_ROOT/cluster/python/validate_model_cache.py' '$model'"; then
+    check_ok "$profile model cached"
+  else
+    check_bad "missing or incomplete $model on worker"
+  fi
 
   if [ "$CLUSTER_BACKEND" = jaccl ]; then
     if cluster_remote "ibv_devices 2>/dev/null | grep -q 'rdma_'"; then check_ok "Thunderbolt RDMA devices visible"; else check_bad "no worker RDMA devices; enable rdma_ctl in Recovery and connect the TB5 cable"; fi

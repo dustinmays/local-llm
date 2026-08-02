@@ -22,17 +22,37 @@ run = "./cluster/bin/ssh-setup"
 description = "Install dependencies from the worker's existing repository clone"
 run = "./cluster/bin/worker-setup"
 
-[tasks."cluster:download-model"]
-description = "Download CLUSTER_MODEL_LARGE on both Macs"
-run = "./cluster/bin/download-model"
+[tasks."model:download-fast"]
+description = "Download the fast profile on this Mac only"
+run = "./cluster/bin/download-model --fast"
 
-[tasks."cluster:download-model-test"]
-description = "Download a small known-shardable model on both Macs"
+[tasks."model:download-overnight"]
+description = "Download the overnight profile on this Mac only"
+run = "./cluster/bin/download-model --overnight"
+
+[tasks."model:download-test"]
+description = "Download the diagnostic profile on this Mac only"
 run = "./cluster/bin/download-model --test"
 
+[tasks."model:download-all"]
+description = "Download fast and overnight profiles on this Mac only"
+run = "./cluster/bin/download-model --fast && ./cluster/bin/download-model --overnight"
+
+[tasks."model:remove-llama"]
+description = "Interactively remove the diagnostic and 70B Llama caches on this Mac"
+run = "./cluster/bin/remove-llama-models"
+
 [tasks."cluster:check"]
-description = "Validate both Macs, SSH, MLX, RDMA, models, and paths"
-run = "./cluster/bin/check"
+description = "Validate both Macs for the fast profile"
+run = "./cluster/bin/check --fast"
+
+[tasks."cluster:check-overnight"]
+description = "Validate both Macs for the overnight profile"
+run = "./cluster/bin/check --overnight"
+
+[tasks."cluster:check-test"]
+description = "Validate both Macs for the diagnostic profile"
+run = "./cluster/bin/check --test"
 
 [tasks."cluster:topology"]
 description = "Inspect the Thunderbolt topology without changing interfaces"
@@ -47,8 +67,16 @@ description = "Run a two-rank MLX collective smoke test"
 run = "./cluster/bin/smoke"
 
 [tasks."cluster:start"]
-description = "Start CLUSTER_MODEL_LARGE across both Macs"
-run = "./cluster/bin/start"
+description = "Start the fast profile across both Macs"
+run = "./cluster/bin/start --fast"
+
+[tasks."cluster:start-fast"]
+description = "Start the fast profile across both Macs"
+run = "./cluster/bin/start --fast"
+
+[tasks."cluster:start-overnight"]
+description = "Start the overnight profile across both Macs"
+run = "./cluster/bin/start --overnight"
 
 [tasks."cluster:start-test"]
 description = "Start the small known-shardable distributed test model"
@@ -69,6 +97,14 @@ run = "./cluster/bin/logs"
 [tasks."cluster:test"]
 description = "Send a small OpenAI-compatible request to the cluster"
 run = "./cluster/bin/api-test"
+
+[tasks."cluster:test-tools"]
+description = "Require a structured function call from the active model"
+run = "./cluster/bin/tool-test"
+
+[tasks."cluster:benchmark"]
+description = "Measure uncached prompt and generation latency"
+run = "./cluster/bin/benchmark"
 
 [tasks."opencode:install"]
 description = "Back up and install the OpenCode config with local and cluster providers"

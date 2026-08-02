@@ -1,0 +1,36 @@
+#!/bin/bash
+
+set -euo pipefail
+source "$(cd "$(dirname "$0")/.." && pwd -P)/lib/common.sh"
+cluster_load_config
+
+cluster_server_up || cluster_die "cluster API is not ready"
+model="$CLUSTER_MODEL_FAST"
+if [ -s "$CLUSTER_MODEL_FILE" ]; then
+  model="$(sed -n '1p' "$CLUSTER_MODEL_FILE")"
+fi
+
+response_file="$CLUSTER_RUN_DIR/tool-test.json"
+curl -fsS --max-time 600 \
+  "http://$CLUSTER_API_HOST:$CLUSTER_API_PORT/v1/chat/completions" \
+  -H 'Content-Type: application/json' \
+  -d "{\"model\":\"$model\",\"messages\":[{\"role\":\"user\",\"content\":\"You must call report_cluster_status with state set to ready. Do not answer in plain text.\"}],\"tools\":[{\"type\":\"function\",\"function\":{\"name\":\"report_cluster_status\",\"description\":\"Report the cluster state\",\"parameters\":{\"type\":\"object\",\"properties\":{\"state\":{\"type\":\"string\",\"enum\":[\"ready\"]}},\"required\":[\"state\"],\"additionalProperties\":false}}}],\"temperature\":0,\"max_tokens\":128}" \
+  > "$response_file"
+
+cluster_python - "$response_file" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1]) as handle:
+    response = json.load(handle)
+
+message = response["choices"][0]["message"]
+calls = message.get("tool_calls") or []
+assert calls, f"no structured tool_calls in response: {message}"
+call = calls[0]["function"]
+assert call["name"] == "report_cluster_status", call
+arguments = json.loads(call["arguments"])
+assert arguments == {"state": "ready"}, arguments
+print(json.dumps(calls[0], indent=2))
+print("cluster: structured tool call passed")
+PY

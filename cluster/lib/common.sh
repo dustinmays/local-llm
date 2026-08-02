@@ -5,6 +5,7 @@ set -euo pipefail
 CLUSTER_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 CLUSTER_REPO_ROOT="$(cd "$CLUSTER_LIB_DIR/../.." && pwd -P)"
 CLUSTER_CONFIG_FILE="${CLUSTER_CONFIG_FILE:-$CLUSTER_REPO_ROOT/cluster/config.local.env}"
+CLUSTER_MODELS_FILE="$CLUSTER_REPO_ROOT/cluster/models.env"
 CLUSTER_GENERATED_DIR="$CLUSTER_REPO_ROOT/cluster/generated"
 CLUSTER_RUN_DIR="$CLUSTER_REPO_ROOT/cluster/run"
 
@@ -22,7 +23,18 @@ cluster_mise() {
   fi
 }
 
+cluster_load_models() {
+  [ -f "$CLUSTER_MODELS_FILE" ] || cluster_die "missing $CLUSTER_MODELS_FILE"
+  # shellcheck disable=SC1090
+  source "$CLUSTER_MODELS_FILE"
+
+  : "${CLUSTER_MODEL_FAST:?missing CLUSTER_MODEL_FAST}"
+  : "${CLUSTER_MODEL_OVERNIGHT:?missing CLUSTER_MODEL_OVERNIGHT}"
+  : "${CLUSTER_MODEL_TEST:?missing CLUSTER_MODEL_TEST}"
+}
+
 cluster_load_config() {
+  cluster_load_models
   [ -f "$CLUSTER_CONFIG_FILE" ] || cluster_die "missing $CLUSTER_CONFIG_FILE; run 'mise run cluster:init'"
   # shellcheck disable=SC1090
   source "$CLUSTER_CONFIG_FILE"
@@ -37,8 +49,6 @@ cluster_load_config() {
   : "${CLUSTER_WORKER_REPO:?missing CLUSTER_WORKER_REPO}"
   : "${CLUSTER_BACKEND:?missing CLUSTER_BACKEND}"
   : "${CLUSTER_TRANSPORT:?missing CLUSTER_TRANSPORT}"
-  : "${CLUSTER_MODEL_LARGE:?missing CLUSTER_MODEL_LARGE}"
-  : "${CLUSTER_MODEL_TEST:?missing CLUSTER_MODEL_TEST}"
   : "${CLUSTER_SHARED_ROOT:?missing CLUSTER_SHARED_ROOT}"
 
   CLUSTER_API_HOST="${CLUSTER_API_HOST:-127.0.0.1}"
@@ -52,6 +62,15 @@ cluster_load_config() {
   CLUSTER_PIDFILE="$CLUSTER_RUN_DIR/server.pid"
   CLUSTER_MODEL_FILE="$CLUSTER_RUN_DIR/server.model"
   CLUSTER_LOGFILE="$CLUSTER_RUN_DIR/server.log"
+}
+
+cluster_model_for_profile() {
+  case "$1" in
+    fast) printf '%s\n' "$CLUSTER_MODEL_FAST" ;;
+    overnight) printf '%s\n' "$CLUSTER_MODEL_OVERNIGHT" ;;
+    test) printf '%s\n' "$CLUSTER_MODEL_TEST" ;;
+    *) cluster_die "unknown model profile '$1'; expected fast, overnight, or test" ;;
+  esac
 }
 
 cluster_python() {

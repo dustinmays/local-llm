@@ -1,0 +1,17 @@
+#!/bin/bash
+
+set -euo pipefail
+source "$(cd "$(dirname "$0")/.." && pwd -P)/lib/common.sh"
+cluster_load_config
+
+cluster_server_up || cluster_die "cluster API is not ready"
+model="$CLUSTER_MODEL_FAST"
+if [ -s "$CLUSTER_MODEL_FILE" ]; then
+  model="$(sed -n '1p' "$CLUSTER_MODEL_FILE")"
+fi
+
+cluster_python "$CLUSTER_REPO_ROOT/cluster/python/benchmark.py" \
+  "$CLUSTER_API_HOST" \
+  "$CLUSTER_API_PORT" \
+  "$model" \
+  "${CLUSTER_BENCHMARK_INPUT_TOKENS:-8192}"

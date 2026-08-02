@@ -49,22 +49,23 @@ the lifetime of the server, and both must have the complete model on disk.
 - Homebrew, Git, and mise installed on both machines.
 - The same Hugging Face MLX model repositories cached on both machines.
 
-The cluster models are configured in `cluster/config.local.env`:
+The shared model profiles are configured in tracked `cluster/models.env`:
 
 ```text
-CLUSTER_MODEL_LARGE="mlx-community/Llama-3.3-70B-Instruct-4bit"
+CLUSTER_MODEL_FAST="mlx-community/Qwen3.5-35B-A3B-4bit"
+CLUSTER_MODEL_OVERNIGHT="mlx-community/Qwen3.5-122B-A10B-4bit"
 CLUSTER_MODEL_TEST="mlx-community/Llama-3.2-3B-Instruct-4bit"
 ```
 
-The normal download and start commands use `CLUSTER_MODEL_LARGE`; changing that
-one value changes the managed target without editing a script. The `--test`
-path remains a small, inexpensive end-to-end diagnostic.
+The fast and overnight models use MLX's shardable `qwen3_5_moe`
+implementation and tool-aware chat templates. The test profile remains a
+small, inexpensive end-to-end infrastructure diagnostic.
 
 > **Compatibility note:** `Qwen3-Coder-30B-A3B-Instruct` uses MLX's
 > `qwen3_moe` implementation. In `mlx-lm` 0.31.3 that implementation supports
 > neither tensor nor pipeline sharding, so it remains a single-Mac LM Studio
 > model. The cluster uses `Llama-3.2-3B-Instruct-4bit` for its inexpensive
-> end-to-end validation before selecting a shardable 70-72B target.
+> infrastructure validation and shardable Qwen3.5 profiles for production.
 
 LM Studio, Ollama, and Hugging Face use different model storage layouts. A
 model visible in another application is not necessarily available to
@@ -178,16 +179,27 @@ This validates the existing repository at `/Users/dustin/repos/local-llm`,
 installs the pinned mise environment, and creates the M4's
 `/Users/Shared/local-llm` link. It deliberately performs no GitHub operations.
 
-After the small-model cluster test passes, download the configured large model
-to the Hugging Face cache on both Macs:
+After the small-model cluster test passes, download each production profile
+locally. Stop the active cluster on the M5 first:
 
 ```bash
-mise run cluster:download-model
+mise run cluster:stop
 ```
 
-The command reads `CLUSTER_MODEL_LARGE` from the gitignored local configuration
-and downloads the exact same repository revision on each Mac. Expect a large
-download on each machine.
+Then run this sequence once in an interactive terminal on the M5 and once on
+the M4:
+
+```bash
+git pull --ff-only
+mise run model:remove-llama
+mise run model:download-all
+```
+
+Cleanup shows the exact Llama cache directories and requires typing
+`remove llama`; it refuses to proceed while a Llama server is active. Downloads
+never use SSH. They run sequentially, resume Hugging Face cache data after an
+interruption, and use `caffeinate` to keep that Mac awake. Each Mac must retain
+a complete snapshot; only resident inference weights are sharded.
 
 ### 6. Enable Thunderbolt RDMA on both Macs
 
@@ -263,7 +275,7 @@ Do not proceed if only one rank appears or the command hangs.
 Download and start the small known-shardable server test:
 
 ```bash
-mise run cluster:download-model-test
+mise run model:download-test  # run once on each Mac
 mise run cluster:start-test
 mise run cluster:test
 mise run cluster:stop
@@ -298,18 +310,26 @@ reads its own configuration and talks to the cluster endpoint.
 
 Restart T3 after installing the configuration. In a new OpenCode thread,
 choose **MLX Cluster (M5 + M4)** and the model matching the running server.
-The installer renders both cluster model entries from `CLUSTER_MODEL_LARGE`
-and `CLUSTER_MODEL_TEST`; no model ID needs to be duplicated in the OpenCode
+The installer renders fast, overnight, and test entries from
+`cluster/models.env`; no model ID needs to be duplicated in the OpenCode
 template.
 
 ## Daily operation
 
 Run all management commands from the M5 repository.
 
-Start the configured large model:
+Start the fast interactive model:
 
 ```bash
-mise run cluster:start
+mise run cluster:check
+mise run cluster:start-fast
+```
+
+Start the overnight model instead:
+
+```bash
+mise run cluster:check-overnight
+mise run cluster:start-overnight
 ```
 
 Startup performs these actions:
@@ -327,6 +347,8 @@ Inspect status and make a small API request:
 ```bash
 mise run cluster:status
 mise run cluster:test
+mise run cluster:test-tools
+mise run cluster:benchmark
 ```
 
 Follow logs:
@@ -363,13 +385,13 @@ lmstudio/qwen3-coder-30b-a3b-instruct@4bit
 
 ```bash
 llm-serve-stop
-mise run cluster:start
+mise run cluster:start-fast
 ```
 
 OpenCode model:
 
 ```text
-mlxcluster/mlx-community/Llama-3.3-70B-Instruct-4bit
+mlxcluster/mlx-community/Qwen3.5-35B-A3B-4bit
 ```
 
 ### Update both machines
@@ -495,24 +517,25 @@ ssh mlx-m4 "ps aux | grep '[m]lx_lm server'"
 
 Avoid broad `pkill python` commands; they can terminate unrelated work.
 
-## Changing the large model
+## Changing model profiles
 
 Do this only after the small diagnostic model passes `cluster:smoke` and
 `cluster:test`.
 
-A 70-72B 4-bit model typically occupies roughly 38-42 GB total, or about
-19-21 GB of resident weights per rank, leaving useful headroom for KV cache and
-macOS. An 8-bit 70B model is much tighter and should not be the first target.
+Model weights must leave headroom on each rank for macOS, runtime allocations,
+and prompt cache. A model fitting on disk does not prove it will load safely.
 
 For a new model:
 
 1. Choose an MLX repository whose architecture supports distributed sharding.
 2. Download the identical repository revision on both Macs.
 3. Confirm the complete model exists in both Hugging Face caches.
-4. Change `CLUSTER_MODEL_LARGE` in `cluster/config.local.env`.
+4. Change the appropriate variable in `cluster/models.env` and pull the same
+   commit on both Macs.
 5. Run `mise run opencode:install` to render the new model into OpenCode.
 6. Restart T3 and the cluster.
-7. Test chat completion and structured tool calls before unattended use.
+7. Run `cluster:test`, `cluster:test-tools`, and `cluster:benchmark` before
+   unattended use.
 
 ## Security and recovery notes
 

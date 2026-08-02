@@ -11,11 +11,11 @@ if [ -f "$destination" ]; then
   cp -p "$destination" "$backup"
   cluster_note "backed up existing config to $backup"
 fi
-cluster_python - "$CLUSTER_REPO_ROOT/config/opencode.json" "$destination" "$CLUSTER_MODEL_LARGE" "$CLUSTER_MODEL_TEST" <<'PY'
+cluster_python - "$CLUSTER_REPO_ROOT/config/opencode.json" "$destination" "$CLUSTER_MODEL_FAST" "$CLUSTER_MODEL_OVERNIGHT" "$CLUSTER_MODEL_TEST" <<'PY'
 import json
 import sys
 
-source, destination, large_model, test_model = sys.argv[1:]
+source, destination, fast_model, overnight_model, test_model = sys.argv[1:]
 with open(source) as handle:
     config = json.load(handle)
 
@@ -27,7 +27,8 @@ def entry(model, suffix, context):
     }
 
 config["provider"]["mlxcluster"]["models"] = {
-    large_model: entry(large_model, "distributed", 32768),
+    fast_model: entry(fast_model, "fast distributed", 32768),
+    overnight_model: entry(overnight_model, "overnight distributed", 32768),
     test_model: entry(test_model, "cluster test", 8192),
 }
 with open(destination, "w") as handle:
@@ -35,4 +36,5 @@ with open(destination, "w") as handle:
     handle.write("\n")
 PY
 cluster_note "installed OpenCode config at $destination"
-cluster_note "cluster model: $CLUSTER_MODEL_LARGE"
+cluster_note "fast model: $CLUSTER_MODEL_FAST"
+cluster_note "overnight model: $CLUSTER_MODEL_OVERNIGHT"

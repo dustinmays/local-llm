@@ -1,0 +1,45 @@
+#!/bin/bash
+
+set -euo pipefail
+source "$(cd "$(dirname "$0")/.." && pwd -P)/lib/common.sh"
+cluster_load_models
+
+found=0
+for model in $CLUSTER_LLAMA_CLEANUP_MODELS; do
+  cache_dir="$(cluster_model_cache_dir "$model")"
+  if [ -d "$cache_dir" ]; then
+    found=1
+    printf '%s  %s\n' "$(du -sh "$cache_dir" | awk '{print $1}')" "$cache_dir"
+  fi
+done
+
+if [ "$found" -eq 0 ]; then
+  cluster_note "no managed Llama cache directories found on this Mac"
+  exit 0
+fi
+
+if pgrep -f '[m]lx_lm server .*Llama' >/dev/null 2>&1; then
+  cluster_die "a Llama server is running on this Mac; stop it before cleanup"
+fi
+
+cluster_warn "this permanently removes the listed Hugging Face cache directories"
+if [ "${REMOVE_LLAMA:-}" != "yes" ]; then
+  [ -t 0 ] || cluster_die "interactive confirmation required; rerun in a terminal"
+  printf 'Type "remove llama" to continue: '
+  read -r confirmation
+  [ "$confirmation" = "remove llama" ] || cluster_die "cleanup cancelled"
+fi
+
+for model in $CLUSTER_LLAMA_CLEANUP_MODELS; do
+  cache_dir="$(cluster_model_cache_dir "$model")"
+  lock_dir="$HOME/.cache/huggingface/hub/.locks/models--${model//\//--}"
+  if [ -d "$cache_dir" ]; then
+    rm -rf -- "$cache_dir"
+    cluster_note "removed $model"
+  fi
+  if [ -d "$lock_dir" ]; then
+    rm -rf -- "$lock_dir"
+  fi
+done
+
+cluster_note "Llama cache cleanup complete on this Mac; models can be downloaded again later"
