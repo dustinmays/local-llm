@@ -1,0 +1,24 @@
+#!/bin/bash
+
+set -euo pipefail
+source "$(cd "$(dirname "$0")/.." && pwd -P)/lib/common.sh"
+cluster_load_config
+
+if cluster_launcher_running; then
+  printf 'launcher: running (PID %s)\n' "$(cluster_read_pid)"
+else
+  printf 'launcher: stopped\n'
+fi
+
+if cluster_server_up; then
+  printf 'api:      ready (http://%s:%s/v1)\n' "$CLUSTER_API_HOST" "$CLUSTER_API_PORT"
+  curl -fsS "http://$CLUSTER_API_HOST:$CLUSTER_API_PORT/v1/models" | cluster_python -m json.tool
+else
+  printf 'api:      unavailable\n'
+fi
+
+if cluster_remote 'true' 2>/dev/null; then
+  printf 'worker:   reachable (%s)\n' "$CLUSTER_WORKER_SSH"
+else
+  printf 'worker:   unreachable (%s)\n' "$CLUSTER_WORKER_SSH"
+fi

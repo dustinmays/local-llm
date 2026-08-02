@@ -1,0 +1,47 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "lmstudio": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "LM Studio (local MLX)",
+      "options": {
+        "baseURL": "http://localhost:1234/v1",
+        "apiKey": "lm-studio"
+      },
+      "models": {
+        "qwen3-coder-30b-a3b-instruct@4bit": {
+          "name": "Qwen3 Coder 30B A3B (4-bit, fast)"
+        },
+        "qwen3-coder-30b-a3b-instruct@8bit": {
+          "name": "Qwen3 Coder 30B A3B (8-bit, high quality)"
+        }
+      }
+    },
+    "mlxcluster": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "MLX Cluster (M5 + M4)",
+      "options": {
+        "baseURL": "http://127.0.0.1:8080/v1",
+        "apiKey": "local-mlx-cluster",
+        "timeout": 600000
+      },
+      "models": {
+        "mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit": {
+          "name": "Qwen3 Coder 30B A3B (8-bit, distributed)",
+          "limit": {
+            "context": 65536,
+            "output": 4096
+          }
+        },
+        "mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit": {
+          "name": "Qwen3 Coder 30B A3B (4-bit, distributed fast)",
+          "limit": {
+            "context": 65536,
+            "output": 4096
+          }
+        }
+      }
+    }
+  },
+  "model": "lmstudio/qwen3-coder-30b-a3b-instruct@4bit"
+}

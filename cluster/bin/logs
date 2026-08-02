@@ -1,0 +1,8 @@
+#!/bin/bash
+
+set -euo pipefail
+source "$(cd "$(dirname "$0")/.." && pwd -P)/lib/common.sh"
+cluster_load_config
+
+[ -f "$CLUSTER_LOGFILE" ] || cluster_die "no log at $CLUSTER_LOGFILE"
+tail -n 100 -f "$CLUSTER_LOGFILE"

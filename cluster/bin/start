@@ -1,0 +1,76 @@
+#!/bin/bash
+
+set -euo pipefail
+source "$(cd "$(dirname "$0")/.." && pwd -P)/lib/common.sh"
+cluster_load_config
+cluster_require_hostfile
+
+model="$CLUSTER_MODEL"
+if [ "${1:-}" = "--fast" ]; then
+  model="$CLUSTER_MODEL_FAST"
+elif [ -n "${1:-}" ]; then
+  cluster_die "usage: mise run cluster:start [--fast]"
+fi
+
+if cluster_launcher_running; then
+  cluster_die "cluster launcher is already running with PID $(cluster_read_pid)"
+fi
+if cluster_server_up; then
+  cluster_die "port $CLUSTER_API_PORT already answers; stop the existing server first"
+fi
+
+mkdir -p "$CLUSTER_RUN_DIR"
+: > "$CLUSTER_LOGFILE"
+
+if command -v llm-serve-stop >/dev/null 2>&1; then
+  cluster_note "stopping LM Studio to free memory"
+  llm-serve-stop >/dev/null 2>&1 || true
+else
+  lms_bin="$HOME/.lmstudio/bin/lms"
+  if [ -x "$lms_bin" ]; then
+    "$lms_bin" unload --all >/dev/null 2>&1 || true
+    "$lms_bin" server stop >/dev/null 2>&1 || true
+  fi
+fi
+
+cluster_note "stopping LM Studio on the worker to free memory"
+cluster_remote 'if [ -x "$HOME/.lmstudio/bin/lms" ]; then "$HOME/.lmstudio/bin/lms" unload --all >/dev/null 2>&1 || true; "$HOME/.lmstudio/bin/lms" server stop >/dev/null 2>&1 || true; fi'
+
+cluster_note "starting $model across two Macs"
+nohup "$(cluster_mise)" -C "$CLUSTER_REPO_ROOT" exec -- mlx.launch \
+  --verbose \
+  --backend "$CLUSTER_BACKEND" \
+  --hostfile "$CLUSTER_HOSTFILE" \
+  --cwd "$CLUSTER_SHARED_ROOT" \
+  --env MLX_METAL_FAST_SYNCH=1 \
+  -- \
+  "$CLUSTER_SHARED_ROOT/cluster/bin/node-python" -m mlx_lm server \
+  --model "$model" \
+  --host "$CLUSTER_API_HOST" \
+  --port "$CLUSTER_API_PORT" \
+  --max-tokens "$CLUSTER_MAX_OUTPUT_TOKENS" \
+  --prompt-cache-size "$CLUSTER_PROMPT_CACHE_SIZE" \
+  --prompt-cache-bytes "$CLUSTER_PROMPT_CACHE_BYTES" \
+  > "$CLUSTER_LOGFILE" 2>&1 &
+launcher_pid=$!
+printf '%s\n' "$launcher_pid" > "$CLUSTER_PIDFILE"
+
+cluster_note "launcher PID $launcher_pid; model loading can take several minutes"
+cluster_note "log: $CLUSTER_LOGFILE"
+
+attempt=0
+while [ "$attempt" -lt 90 ]; do
+  if cluster_server_up; then
+    cluster_note "ready: http://$CLUSTER_API_HOST:$CLUSTER_API_PORT/v1"
+    exit 0
+  fi
+  if ! kill -0 "$launcher_pid" 2>/dev/null; then
+    tail -n 80 "$CLUSTER_LOGFILE" >&2
+    rm -f "$CLUSTER_PIDFILE"
+    cluster_die "launcher exited while loading"
+  fi
+  attempt=$((attempt + 1))
+  sleep 2
+done
+
+cluster_warn "server is still loading; follow it with 'mise run cluster:logs'"

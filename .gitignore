@@ -1,0 +1,20 @@
+# Python virtual environment
+.venv/
+
+# Python caches
+__pycache__/
+*.pyc
+
+# Warm-server runtime files
+.server.pid
+.server.log
+
+# Distributed-cluster machine config and runtime files
+cluster/config.local.env
+cluster/generated/
+cluster/run/
+
+# Locally downloaded models (large)
+models/
+*.safetensors
+*.gguf

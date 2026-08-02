@@ -1,0 +1,17 @@
+#!/bin/bash
+
+set -euo pipefail
+
+shared_root="${CLUSTER_SHARED_ROOT:-/Users/Shared/local-llm}"
+if [ -x /opt/homebrew/bin/mise ]; then
+  mise_bin=/opt/homebrew/bin/mise
+elif command -v mise >/dev/null 2>&1; then
+  mise_bin="$(command -v mise)"
+else
+  printf 'cluster node: mise is not installed\n' >&2
+  exit 1
+fi
+
+# Keep each laptop awake while its MLX rank exists. The -s assertion applies
+# while connected to AC power; keep both MacBooks plugged in and lids open.
+exec /usr/bin/caffeinate -ims "$mise_bin" -C "$shared_root" exec -- python "$@"

@@ -1,0 +1,20 @@
+#!/bin/bash
+
+set -euo pipefail
+source "$(cd "$(dirname "$0")/.." && pwd -P)/lib/common.sh"
+cluster_load_config
+mkdir -p "$CLUSTER_GENERATED_DIR"
+
+cluster_note "discovering $CLUSTER_TRANSPORT links for $CLUSTER_BACKEND"
+cluster_note "this command does not configure passwordless sudo"
+cluster_exec mlx.distributed_config \
+  --verbose \
+  --hosts "$CLUSTER_CONTROLLER_SSH,$CLUSTER_WORKER_SSH" \
+  --over "$CLUSTER_TRANSPORT" \
+  --backend "$CLUSTER_BACKEND" \
+  --no-auto-setup \
+  --output-hostfile "$CLUSTER_HOSTFILE"
+
+[ -s "$CLUSTER_HOSTFILE" ] || cluster_die "MLX did not create $CLUSTER_HOSTFILE; follow the printed interface commands and rerun"
+cluster_note "wrote $CLUSTER_HOSTFILE"
+cluster_note "next: mise run cluster:smoke"

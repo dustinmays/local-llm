@@ -1,0 +1,67 @@
+min_version = "2026.7.0"
+
+[tools]
+python = "3.13.14"
+
+[env]
+_.python.venv = { path = ".venv", create = true }
+
+[tasks.setup]
+description = "Install the pinned local MLX environment on this Mac"
+run = "./cluster/bin/bootstrap"
+
+[tasks."cluster:init"]
+description = "Create the controller's gitignored cluster configuration"
+run = "./cluster/bin/init-config"
+
+[tasks."cluster:ssh-setup"]
+description = "Install a dedicated passwordless SSH key on the worker"
+run = "./cluster/bin/ssh-setup"
+
+[tasks."cluster:worker-setup"]
+description = "Clone/update this repository and install dependencies on the worker"
+run = "./cluster/bin/worker-setup"
+
+[tasks."cluster:check"]
+description = "Validate both Macs, SSH, MLX, RDMA, models, and paths"
+run = "./cluster/bin/check"
+
+[tasks."cluster:topology"]
+description = "Inspect the Thunderbolt topology without changing interfaces"
+run = "./cluster/bin/topology"
+
+[tasks."cluster:configure"]
+description = "Configure Thunderbolt networking and generate the MLX hostfile"
+run = "./cluster/bin/configure"
+
+[tasks."cluster:smoke"]
+description = "Run a two-rank MLX collective smoke test"
+run = "./cluster/bin/smoke"
+
+[tasks."cluster:start"]
+description = "Start the distributed 8-bit MLX server"
+run = "./cluster/bin/start"
+
+[tasks."cluster:start-fast"]
+description = "Start the distributed 4-bit MLX server"
+run = "./cluster/bin/start --fast"
+
+[tasks."cluster:stop"]
+description = "Stop the distributed MLX server and both ranks"
+run = "./cluster/bin/stop"
+
+[tasks."cluster:status"]
+description = "Show launcher, API, model, and worker status"
+run = "./cluster/bin/status"
+
+[tasks."cluster:logs"]
+description = "Follow the distributed server log"
+run = "./cluster/bin/logs"
+
+[tasks."cluster:test"]
+description = "Send a small OpenAI-compatible request to the cluster"
+run = "./cluster/bin/api-test"
+
+[tasks."opencode:install"]
+description = "Back up and install the OpenCode config with local and cluster providers"
+run = "./cluster/bin/install-opencode"

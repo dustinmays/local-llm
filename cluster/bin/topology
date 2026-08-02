@@ -1,0 +1,11 @@
+#!/bin/bash
+
+set -euo pipefail
+source "$(cd "$(dirname "$0")/.." && pwd -P)/lib/common.sh"
+cluster_load_config
+
+cluster_exec mlx.distributed_config \
+  --verbose \
+  --hosts "$CLUSTER_CONTROLLER_SSH,$CLUSTER_WORKER_SSH" \
+  --over "$CLUSTER_TRANSPORT" \
+  --dot

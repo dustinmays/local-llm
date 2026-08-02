@@ -1,0 +1,17 @@
+#!/bin/bash
+
+set -euo pipefail
+source "$(cd "$(dirname "$0")/.." && pwd -P)/lib/common.sh"
+cluster_load_config
+cluster_require_hostfile
+
+cluster_note "launching two-rank $CLUSTER_BACKEND smoke test"
+cluster_exec mlx.launch \
+  --verbose \
+  --backend "$CLUSTER_BACKEND" \
+  --hostfile "$CLUSTER_HOSTFILE" \
+  --cwd "$CLUSTER_SHARED_ROOT" \
+  --env MLX_METAL_FAST_SYNCH=1 \
+  -- \
+  "$CLUSTER_SHARED_ROOT/cluster/bin/node-python" \
+  "$CLUSTER_SHARED_ROOT/cluster/python/distributed_smoke.py"

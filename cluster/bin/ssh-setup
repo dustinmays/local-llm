@@ -1,0 +1,45 @@
+#!/bin/bash
+
+set -euo pipefail
+source "$(cd "$(dirname "$0")/.." && pwd -P)/lib/common.sh"
+cluster_load_config
+
+ssh_dir="$HOME/.ssh"
+ssh_config_dir="$ssh_dir/config.d"
+ssh_fragment="$ssh_config_dir/local-llm-cluster"
+pubkey="$CLUSTER_SSH_KEY.pub"
+
+mkdir -p "$ssh_dir" "$ssh_config_dir"
+chmod 700 "$ssh_dir" "$ssh_config_dir"
+
+if [ ! -f "$CLUSTER_SSH_KEY" ]; then
+  cluster_note "creating dedicated cluster key at $CLUSTER_SSH_KEY"
+  ssh-keygen -q -t ed25519 -a 64 -N '' -C local-llm-cluster -f "$CLUSTER_SSH_KEY"
+fi
+
+touch "$ssh_dir/config"
+chmod 600 "$ssh_dir/config"
+if ! grep -Eq '^[[:space:]]*Include[[:space:]]+~/.ssh/config.d/\*' "$ssh_dir/config"; then
+  printf '\nInclude ~/.ssh/config.d/*\n' >> "$ssh_dir/config"
+fi
+
+cat > "$ssh_fragment" <<EOF
+Host $CLUSTER_WORKER_ALIAS
+    HostName $CLUSTER_WORKER_HOST
+    User $CLUSTER_WORKER_USER
+    IdentityFile $CLUSTER_SSH_KEY
+    IdentitiesOnly yes
+    ServerAliveInterval 15
+    ServerAliveCountMax 3
+EOF
+chmod 600 "$ssh_fragment"
+
+cluster_note "installing the cluster key; enter the M4 password once"
+ssh "$CLUSTER_WORKER_USER@$CLUSTER_WORKER_HOST" \
+  'umask 077; mkdir -p ~/.ssh; touch ~/.ssh/authorized_keys; key=$(cat); grep -qxF "$key" ~/.ssh/authorized_keys || printf "%s\n" "$key" >> ~/.ssh/authorized_keys' \
+  < "$pubkey"
+
+cluster_note "testing unattended SSH"
+ssh -o BatchMode=yes -o ConnectTimeout=8 "$CLUSTER_WORKER_ALIAS" \
+  'printf "worker: %s (%s)\n" "$(scutil --get LocalHostName)" "$(sw_vers -productVersion)"'
+cluster_note "SSH setup complete"

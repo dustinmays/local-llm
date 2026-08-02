@@ -1,0 +1,61 @@
+#!/bin/bash
+
+set -euo pipefail
+source "$(cd "$(dirname "$0")/.." && pwd -P)/lib/common.sh"
+cluster_load_config
+
+failures=0
+check_ok() { printf '  ok   %s\n' "$*"; }
+check_bad() { printf '  FAIL %s\n' "$*" >&2; failures=$((failures + 1)); }
+check_warn() { printf '  warn %s\n' "$*"; }
+
+cluster_note "controller"
+controller_version="$(sw_vers -productVersion)"
+controller_major="$(printf '%s' "$controller_version" | cut -d. -f1)"
+controller_minor="$(printf '%s' "$controller_version" | cut -d. -f2)"
+if [ "$controller_major" -gt 26 ] || { [ "$controller_major" -eq 26 ] && [ "$controller_minor" -ge 2 ]; }; then
+  check_ok "macOS $controller_version"
+else
+  check_bad "macOS 26.2+ required for JACCL"
+fi
+if [ -L "$CLUSTER_SHARED_ROOT" ] && [ "$(cd "$CLUSTER_SHARED_ROOT" && pwd -P)" = "$CLUSTER_REPO_ROOT" ]; then check_ok "$CLUSTER_SHARED_ROOT points to this clone"; else check_bad "run 'mise run setup' to create $CLUSTER_SHARED_ROOT"; fi
+if cluster_python -c 'import mlx.core as mx; assert mx.distributed.is_available()'; then check_ok "MLX distributed available"; else check_bad "MLX distributed unavailable"; fi
+
+local_model_dir="$(cluster_model_cache_dir "$CLUSTER_MODEL")"
+if [ -d "$local_model_dir" ]; then check_ok "8-bit model cached"; else check_bad "missing $CLUSTER_MODEL"; fi
+
+if [ "$CLUSTER_BACKEND" = jaccl ]; then
+  if ibv_devices 2>/dev/null | grep -q 'rdma_'; then check_ok "Thunderbolt RDMA devices visible"; else check_bad "no RDMA devices; enable rdma_ctl in Recovery and connect the TB5 cable"; fi
+fi
+
+cluster_note "worker ($CLUSTER_WORKER_SSH)"
+if cluster_remote 'true'; then
+  check_ok "passwordless SSH"
+
+  worker_version="$(cluster_remote 'sw_vers -productVersion')"
+  worker_major="$(printf '%s' "$worker_version" | cut -d. -f1)"
+  worker_minor="$(printf '%s' "$worker_version" | cut -d. -f2)"
+  if [ "$worker_major" -gt 26 ] || { [ "$worker_major" -eq 26 ] && [ "$worker_minor" -ge 2 ]; }; then
+    check_ok "macOS $worker_version"
+  else
+    check_bad "worker needs macOS 26.2+ for JACCL"
+  fi
+
+  if cluster_remote "test -e '$CLUSTER_SHARED_ROOT/mise.toml'"; then check_ok "$CLUSTER_SHARED_ROOT exists"; else check_bad "run 'mise run cluster:worker-setup'"; fi
+  if cluster_remote "'$CLUSTER_SHARED_ROOT/cluster/bin/node-python' -c 'import mlx.core as mx; assert mx.distributed.is_available()'"; then check_ok "MLX distributed available"; else check_bad "run 'mise run cluster:worker-setup'"; fi
+
+  remote_model_dir="/Users/$CLUSTER_WORKER_USER/.cache/huggingface/hub/models--${CLUSTER_MODEL//\//--}"
+  if cluster_remote "test -d '$remote_model_dir'"; then check_ok "8-bit model cached"; else check_bad "missing $CLUSTER_MODEL on worker"; fi
+
+  if [ "$CLUSTER_BACKEND" = jaccl ]; then
+    if cluster_remote "ibv_devices 2>/dev/null | grep -q 'rdma_'"; then check_ok "Thunderbolt RDMA devices visible"; else check_bad "no worker RDMA devices; enable rdma_ctl in Recovery and connect the TB5 cable"; fi
+  fi
+else
+  check_bad "run 'mise run cluster:ssh-setup'"
+  check_warn "remaining worker checks skipped until SSH works"
+fi
+
+if [ "$failures" -gt 0 ]; then
+  cluster_die "$failures prerequisite check(s) failed"
+fi
+cluster_note "both nodes are ready"

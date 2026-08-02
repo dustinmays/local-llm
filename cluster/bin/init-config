@@ -1,0 +1,22 @@
+#!/bin/bash
+
+set -euo pipefail
+source "$(cd "$(dirname "$0")/.." && pwd -P)/lib/common.sh"
+
+worker_user="${1:-dustin}"
+worker_host="${2:-Dustins-MacBook-Pro.local}"
+
+if [ -e "$CLUSTER_CONFIG_FILE" ]; then
+  cluster_die "$CLUSTER_CONFIG_FILE already exists; edit it directly or remove it and rerun"
+fi
+
+cp "$CLUSTER_REPO_ROOT/cluster/config.example.env" "$CLUSTER_CONFIG_FILE"
+sed -i '' \
+  -e "s/CLUSTER_WORKER_HOST=\"[^\"]*\"/CLUSTER_WORKER_HOST=\"$worker_host\"/" \
+  -e "s/CLUSTER_WORKER_USER=\"[^\"]*\"/CLUSTER_WORKER_USER=\"$worker_user\"/" \
+  "$CLUSTER_CONFIG_FILE"
+chmod 600 "$CLUSTER_CONFIG_FILE"
+
+cluster_note "created $CLUSTER_CONFIG_FILE"
+cluster_note "worker: $worker_user@$worker_host"
+cluster_note "review the file, then run 'mise run cluster:ssh-setup'"

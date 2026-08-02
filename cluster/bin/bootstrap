@@ -1,0 +1,42 @@
+#!/bin/bash
+
+set -euo pipefail
+source "$(cd "$(dirname "$0")/.." && pwd -P)/lib/common.sh"
+
+mise_bin="$(cluster_mise)"
+shared_root="/Users/Shared/local-llm"
+
+cluster_note "installing pinned tools"
+"$mise_bin" trust "$CLUSTER_REPO_ROOT/mise.toml" >/dev/null
+"$mise_bin" -C "$CLUSTER_REPO_ROOT" install
+
+cluster_note "installing pinned MLX packages"
+"$mise_bin" -C "$CLUSTER_REPO_ROOT" exec -- \
+  python -m pip install --upgrade pip
+"$mise_bin" -C "$CLUSTER_REPO_ROOT" exec -- \
+  python -m pip install -r "$CLUSTER_REPO_ROOT/cluster/requirements.txt"
+
+if [ -L "$shared_root" ]; then
+  current_target="$(readlink "$shared_root")"
+  if [ "$current_target" != "$CLUSTER_REPO_ROOT" ]; then
+    cluster_die "$shared_root points to $current_target; repoint it to $CLUSTER_REPO_ROOT"
+  fi
+elif [ -e "$shared_root" ]; then
+  cluster_die "$shared_root already exists and is not a symlink"
+else
+  ln -s "$CLUSTER_REPO_ROOT" "$shared_root"
+  cluster_note "linked $shared_root -> $CLUSTER_REPO_ROOT"
+fi
+
+cluster_note "verifying MLX"
+"$mise_bin" -C "$CLUSTER_REPO_ROOT" exec -- python - <<'PY'
+import mlx.core as mx
+import mlx_lm
+
+print(f"mlx {mx.__version__}")
+print(f"mlx-lm {mlx_lm.__version__}")
+print(f"device {mx.default_device()}")
+print(f"distributed {mx.distributed.is_available()}")
+PY
+
+cluster_note "setup complete on $(scutil --get LocalHostName)"

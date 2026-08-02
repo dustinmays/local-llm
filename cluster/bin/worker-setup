@@ -1,0 +1,30 @@
+#!/bin/bash
+
+set -euo pipefail
+source "$(cd "$(dirname "$0")/.." && pwd -P)/lib/common.sh"
+cluster_load_config
+
+cluster_note "preparing $CLUSTER_WORKER_SSH"
+cluster_remote "
+  set -e
+  if [ ! -x /opt/homebrew/bin/mise ] && ! command -v mise >/dev/null 2>&1; then
+    echo 'worker: mise is missing; install it with: brew install mise' >&2
+    exit 1
+  fi
+  mkdir -p '$(dirname "$CLUSTER_WORKER_REPO")'
+  if [ -d '$CLUSTER_WORKER_REPO/.git' ]; then
+    git -C '$CLUSTER_WORKER_REPO' pull --ff-only
+  elif [ -e '$CLUSTER_WORKER_REPO' ]; then
+    echo 'worker: $CLUSTER_WORKER_REPO exists but is not a Git clone' >&2
+    exit 1
+  else
+    git clone '$CLUSTER_GIT_URL' '$CLUSTER_WORKER_REPO'
+  fi
+  cd '$CLUSTER_WORKER_REPO'
+  if [ -x /opt/homebrew/bin/mise ]; then mise_bin=/opt/homebrew/bin/mise; else mise_bin=\$(command -v mise); fi
+  \"\$mise_bin\" trust mise.toml >/dev/null
+  \"\$mise_bin\" install
+  \"\$mise_bin\" run setup
+"
+
+cluster_note "worker setup complete"

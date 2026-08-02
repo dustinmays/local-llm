@@ -1,0 +1,14 @@
+#!/bin/bash
+
+set -euo pipefail
+source "$(cd "$(dirname "$0")/.." && pwd -P)/lib/common.sh"
+
+destination="$HOME/.config/opencode/opencode.json"
+mkdir -p "$(dirname "$destination")"
+if [ -f "$destination" ]; then
+  backup="$destination.backup-$(date +%Y%m%d-%H%M%S)"
+  cp -p "$destination" "$backup"
+  cluster_note "backed up existing config to $backup"
+fi
+cp "$CLUSTER_REPO_ROOT/config/opencode.json" "$destination"
+cluster_note "installed OpenCode config at $destination"

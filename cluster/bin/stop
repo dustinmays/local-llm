@@ -1,0 +1,30 @@
+#!/bin/bash
+
+set -euo pipefail
+source "$(cd "$(dirname "$0")/.." && pwd -P)/lib/common.sh"
+cluster_load_config
+
+pid="$(cluster_read_pid || true)"
+if [ -z "$pid" ]; then
+  cluster_note "no launcher PID recorded"
+  exit 0
+fi
+if ! kill -0 "$pid" 2>/dev/null; then
+  rm -f "$CLUSTER_PIDFILE"
+  cluster_note "removed stale PID file"
+  exit 0
+fi
+
+cluster_note "stopping launcher PID $pid and its managed ranks"
+kill -TERM "$pid"
+attempt=0
+while kill -0 "$pid" 2>/dev/null && [ "$attempt" -lt 20 ]; do
+  attempt=$((attempt + 1))
+  sleep 1
+done
+if kill -0 "$pid" 2>/dev/null; then
+  cluster_warn "launcher did not exit; inspect $CLUSTER_LOGFILE before using force"
+  exit 1
+fi
+rm -f "$CLUSTER_PIDFILE"
+cluster_note "stopped"
