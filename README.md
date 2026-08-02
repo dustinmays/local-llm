@@ -371,6 +371,13 @@ its scripts and propose exact allowances for tests, linting, builds, task
 runners, and other normal work. The prompt requires a reviewable proposal and
 does not authorize the reviewing agent to install it.
 
+The project also provides an OpenCode primary agent at
+[`.opencode/agents/implementer.md`](.opencode/agents/implementer.md). Select
+`implementer` for a scoped issue when the expected terminal state is a
+validated commit, pushed feature branch, and open pull request. It verifies the
+assigned worktree before writing and treats the PR URL—not implementation
+alone—as completion.
+
 Permission patterns are workflow guardrails rather than an OS sandbox. Do not
 use the template with `opencode --auto` unless OpenCode itself is isolated.
 Also note that, as of August 2, 2026, T3 Code's OpenCode adapter overwrites
