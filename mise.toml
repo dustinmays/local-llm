@@ -19,7 +19,7 @@ description = "Install a dedicated passwordless SSH key on the worker"
 run = "./cluster/bin/ssh-setup"
 
 [tasks."cluster:worker-setup"]
-description = "Clone/update this repository and install dependencies on the worker"
+description = "Install dependencies from the worker's existing repository clone"
 run = "./cluster/bin/worker-setup"
 
 [tasks."cluster:check"]

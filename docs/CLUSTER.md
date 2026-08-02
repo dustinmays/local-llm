@@ -139,18 +139,30 @@ ssh -o BatchMode=yes mlx-m4 hostname
 
 ### 5. Install the repository and environment on the M4
 
-After the repository has been pushed to GitHub, run on the M5:
+GitHub credentials stored by macOS may not be available to a non-interactive
+SSH session. Perform Git operations in the M4's interactive terminal instead.
+On the M4:
+
+```bash
+mkdir -p ~/repos
+git clone https://github.com/dustinmays/local-llm.git ~/repos/local-llm
+```
+
+If the clone already exists, update it instead:
+
+```bash
+git -C ~/repos/local-llm pull --ff-only
+```
+
+Then return to the M5 and run:
 
 ```bash
 mise run cluster:worker-setup
 ```
 
-This clones or fast-forwards the repository at
-`/Users/dustin/repos/local-llm`, installs the pinned mise environment, and
-creates the M4's `/Users/Shared/local-llm` link.
-
-The task deliberately refuses to overwrite an existing non-Git directory or
-perform a non-fast-forward Git update.
+This validates the existing repository at `/Users/dustin/repos/local-llm`,
+installs the pinned mise environment, and creates the M4's
+`/Users/Shared/local-llm` link. It deliberately performs no GitHub operations.
 
 ### 6. Enable Thunderbolt RDMA on both Macs
 
@@ -326,11 +338,22 @@ mlxcluster/mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit
 
 ### Update both machines
 
-Commit and push controller changes first, then:
+Commit and push controller changes first. Update the controller on the M5:
 
 ```bash
 git pull --ff-only
 mise run setup
+```
+
+Update the worker from the M4's interactive terminal:
+
+```bash
+git -C ~/repos/local-llm pull --ff-only
+```
+
+Then, back on the M5:
+
+```bash
 mise run cluster:worker-setup
 mise run cluster:check
 ```

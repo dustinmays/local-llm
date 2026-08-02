@@ -11,14 +11,10 @@ cluster_remote "
     echo 'worker: mise is missing; install it with: brew install mise' >&2
     exit 1
   fi
-  mkdir -p '$(dirname "$CLUSTER_WORKER_REPO")'
-  if [ -d '$CLUSTER_WORKER_REPO/.git' ]; then
-    git -C '$CLUSTER_WORKER_REPO' pull --ff-only
-  elif [ -e '$CLUSTER_WORKER_REPO' ]; then
-    echo 'worker: $CLUSTER_WORKER_REPO exists but is not a Git clone' >&2
+  if [ ! -d '$CLUSTER_WORKER_REPO/.git' ]; then
+    echo 'worker: repository clone is missing at $CLUSTER_WORKER_REPO' >&2
+    echo 'worker: clone it from an interactive M4 terminal, then rerun this task' >&2
     exit 1
-  else
-    git clone '$CLUSTER_GIT_URL' '$CLUSTER_WORKER_REPO'
   fi
   cd '$CLUSTER_WORKER_REPO'
   if [ -x /opt/homebrew/bin/mise ]; then mise_bin=/opt/homebrew/bin/mise; else mise_bin=\$(command -v mise); fi
