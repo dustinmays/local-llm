@@ -412,6 +412,7 @@ that is fixed, use direct OpenCode for policy enforcement or keep T3 supervised.
 | `mise run cluster:logs` | Follow the distributed server log |
 | `mise run cluster:stop` | Stop the launcher and clean managed ranks on both Macs |
 | `mise run opencode:install` | Back up and regenerate the OpenCode configuration |
+| `mise run repo:check-shell` | Validate Bash syntax of cluster scripts |
 
 See **[Two-Mac MLX cluster](docs/CLUSTER.md)** for the full one-time setup,
 Recovery-mode RDMA step, SSH bootstrap, T3/OpenCode configuration, daily
