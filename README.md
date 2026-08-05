@@ -250,9 +250,12 @@ opencode run "review the diff on this branch and list risky changes"   # one-sho
 ## Two-Mac distributed MLX cluster
 
 This repository also supports tensor-sharded inference across an M5 Pro and an
-M4 Pro connected directly by Thunderbolt 5. The cluster uses MLX's JACCL/RDMA
-backend and the OpenAI-compatible `mlx_lm.server`; it does not use LM Studio for
-distributed inference.
+M4 Pro connected directly by Thunderbolt 5. The cluster uses MLX's
+OpenAI-compatible `mlx_lm.server`; it does not use LM Studio for distributed
+inference. Both JACCL/RDMA and TCP ring can use the direct Thunderbolt link.
+Ring is the current recommended backend for this hardware because JACCL caused
+reproducible kernel panics during distributed initialization; see
+[JACCL failures and the ring workaround](#jaccl-failures-and-the-ring-workaround).
 
 The shared profiles live in tracked `cluster/models.env`, so both clones use
 the same model IDs:
@@ -336,6 +339,52 @@ rebooting, or returning to LM Studio. Startup unloads LM Studio on both Macs to
 free memory and binds the cluster API only to `http://127.0.0.1:8080/v1` on the
 M5.
 
+### JACCL failures and the ring workaround
+
+On August 5, 2026, this M5 Pro/M4 Pro pair running macOS 26.5.2/26.6, MLX
+0.32.0, and `mlx-lm` 0.31.3 failed during JACCL initialization with these
+errors:
+
+```text
+[jaccl] Couldn't allocate protection domain
+[jaccl] Changing queue pair to RTR failed with errno 22
+[jaccl] Changing queue pair to RTR failed with errno 60
+```
+
+Some early failures were explained by a stale hostfile and direct Thunderbolt
+routes that still referenced the previous ports. After regenerating the
+hostfile and correcting the interface addresses, a two-rank `cluster:smoke`
+still triggered kernel data-abort panics on both Macs. The smoke test does not
+load a model or create a large KV cache, so this incident is distinct from
+known `mlx_lm.server` memory-pressure panics during long agent sessions.
+
+For now, use TCP ring over the same direct Thunderbolt cable. In the
+controller's gitignored `cluster/config.local.env`, set:
+
+```bash
+CLUSTER_BACKEND="ring"
+CLUSTER_TRANSPORT="thunderbolt"
+```
+
+After a reboot, reconnect, or port change, regenerate the hostfile
+interactively. When configuration prints a `Setup for ...` block, leave it
+waiting, run the displayed `sudo ifconfig` and `sudo route` commands on that
+Mac, then press Enter:
+
+```bash
+mise run cluster:configure
+mise run cluster:smoke
+mise run cluster:check-overnight
+mise run cluster:start-overnight
+```
+
+Ring uses TCP over the configured Thunderbolt interfaces, not Wi-Fi. It has
+higher communication latency than RDMA but has remained responsive with the
+122B overnight profile on this pair. Do not retry JACCL with unsaved work open.
+Before testing it again, stop the cluster, switch `CLUSTER_BACKEND` back to
+`jaccl`, regenerate the hostfile, and require `cluster:smoke` to pass before
+loading a model.
+
 ### T3 Code / OpenCode
 
 Generate all three OpenCode model entries from the shared profile variables:
@@ -394,7 +443,7 @@ that is fixed, use direct OpenCode for policy enforcement or keep T3 supervised.
 | `mise run cluster:ssh-setup` | Install dedicated passwordless controller-to-worker SSH |
 | `mise run cluster:worker-setup` | Bootstrap the M4 from its existing repository clone |
 | `mise run cluster:topology` | Inspect Thunderbolt interfaces without changing them |
-| `mise run cluster:configure` | Configure JACCL interfaces and generate the MLX hostfile |
+| `mise run cluster:configure` | Configure the selected Thunderbolt backend and generate its MLX hostfile |
 | `mise run cluster:smoke` | Exercise a two-rank MLX collective operation |
 | `mise run model:download-fast` | Cache the fast profile on this Mac only |
 | `mise run model:download-overnight` | Cache the overnight profile on this Mac only |

@@ -15,7 +15,7 @@ T3 -> OpenCode -> http://127.0.0.1:8080/v1
                          |
                   mlx_lm.server rank 0 (M5)
                          |
-                  Thunderbolt 5 / JACCL
+              Thunderbolt 5 / ring or JACCL
                          |
                        rank 1 (M4)
 ```
@@ -27,8 +27,9 @@ the lifetime of the server, and both must have the complete model on disk.
 ## Design choices
 
 - **mise** pins Python 3.13.14 and supplies short, identical management tasks.
-- **JACCL** provides low-latency RDMA over Thunderbolt 5 and is the primary
-  backend. TCP ring over Thunderbolt is the fallback.
+- **TCP ring over Thunderbolt is the current recommended backend.** JACCL
+  provides lower-latency RDMA, but it caused reproducible kernel panics during
+  distributed initialization on this M5 Pro/M4 Pro pair in August 2026.
 - **The M5 is always rank 0.** Only rank 0 opens the HTTP port.
 - **Machine-specific values are not committed.** They live in the gitignored
   `cluster/config.local.env`.
@@ -201,10 +202,13 @@ never use SSH. They run sequentially, resume Hugging Face cache data after an
 interruption, and use `caffeinate` to keep that Mac awake. Each Mac must retain
 a complete snapshot; only resident inference weights are sharded.
 
-### 6. Enable Thunderbolt RDMA on both Macs
+### 6. Optional: enable Thunderbolt RDMA for JACCL
 
-This is the only step that cannot be automated remotely. Perform it separately
-on each Mac:
+The default ring backend does not require RDMA, so skip this section unless you
+are deliberately testing JACCL after reviewing
+[JACCL initialization errors or kernel panics](#jaccl-initialization-errors-or-kernel-panics).
+Enabling RDMA is the only setup step that cannot be automated remotely. Perform
+it separately on each Mac:
 
 1. Shut down the Mac.
 2. Hold the power button until startup options appear.
@@ -246,10 +250,11 @@ mise run cluster:configure
 commands that require `sudo`, run the command shown for each host in a local
 terminal on that host, then rerun `mise run cluster:configure`.
 
-Successful configuration writes the gitignored hostfile:
+Successful configuration writes a gitignored hostfile for the selected
+backend, for example:
 
 ```text
-cluster/generated/hosts-jaccl.json
+cluster/generated/hosts-ring.json
 ```
 
 Do not hand-edit the hostfile. Regenerate it after changing cables, ports,
@@ -416,7 +421,7 @@ mise run cluster:worker-setup
 mise run cluster:check
 ```
 
-### Select ring-over-Thunderbolt temporarily
+### Select ring over Thunderbolt
 
 Edit the controller's `cluster/config.local.env`:
 
@@ -432,10 +437,59 @@ mise run cluster:configure
 mise run cluster:smoke
 ```
 
-Ring uses TCP over the Thunderbolt interfaces. It avoids RDMA requirements but
-has higher latency; JACCL is preferred for tensor-parallel inference.
+Ring uses TCP over the explicitly configured Thunderbolt interfaces, not
+Wi-Fi. It avoids the JACCL/RDMA kernel path and has remained responsive with
+the 122B profile on this pair, although its communication latency is higher.
+It is the recommended backend here until the JACCL failures below can be
+retested safely on newer macOS and MLX releases.
 
 ## Troubleshooting
+
+### JACCL initialization errors or kernel panics
+
+On August 5, 2026, this exact M5 Pro/M4 Pro pair running macOS 26.5.2/26.6,
+MLX 0.32.0, and `mlx-lm` 0.31.3 produced all of the following during JACCL
+startup and smoke testing:
+
+```text
+[jaccl] Couldn't allocate protection domain
+[jaccl] Changing queue pair to RTR failed with errno 22
+[jaccl] Changing queue pair to RTR failed with errno 60
+```
+
+First rule out stale topology. Compare `cluster/generated/hosts-jaccl.json`
+with `mise run cluster:topology` and the `PORT_ACTIVE` device from
+`ibv_devinfo`. After a reboot, reconnect, or physical port change, rerun
+`cluster:configure` and actually execute every displayed interface and route
+command on the named Mac. Confirm the direct addresses can ping in both
+directions before retrying the smoke test.
+
+In this incident, correcting the topology was not sufficient. A subsequent
+`cluster:smoke` caused kernel data-abort panics on both Macs. Because the smoke
+test only initializes a tiny distributed collective, no model weights or large
+KV cache were present. Treat a spontaneous reboot during JACCL initialization
+as a kernel-level failure: preserve `/Library/Logs/DiagnosticReports/*panic*`,
+do not immediately repeat the test, and switch to ring:
+
+```bash
+# cluster/config.local.env
+CLUSTER_BACKEND="ring"
+CLUSTER_TRANSPORT="thunderbolt"
+```
+
+Then configure and validate the ring backend interactively:
+
+```bash
+mise run cluster:configure
+mise run cluster:smoke
+mise run cluster:check-overnight
+mise run cluster:start-overnight
+```
+
+Do not retry JACCL while either Mac has unsaved work. A future retest should be
+deliberate: update macOS/MLX, stop all model servers, save work on both Macs,
+set the backend to `jaccl`, regenerate the hostfile, and run only
+`cluster:smoke` before attempting a model load.
 
 ### SSH still asks for a password
 
