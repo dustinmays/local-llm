@@ -1,0 +1,45 @@
+#!/bin/bash
+
+set -euo pipefail
+
+# Verify which Git worktree we're operating on
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+WORKTREE_INFO="$(git worktree list --porcelain 2>/dev/null || echo "single worktree")"
+
+printf 'repository: %s\n' "$REPO_ROOT"
+printf '\n'
+
+if [ "$WORKTREE_INFO" = "single worktree" ]; then
+  printf 'worktree: single (no worktree commands used)\n'
+else
+  printf 'worktrees:\n'
+  echo "$WORKTREE_INFO" | while read -r line; do
+    case "$line" in
+      worktree\ *)
+        path="${line#worktree }"
+        printf '  path: %s\n' "$path"
+        ;;
+      branch\ *)
+        branch="${line#branch }"
+        printf '  branch: %s\n' "$branch"
+        ;;
+      head\ *)
+        head="${line#head }"
+        printf '  HEAD: %s\n' "$head"
+        ;;
+    esac
+  done
+fi
+
+printf '\n'
+
+# Verify we're in the expected worktree
+case "$REPO_ROOT" in
+  */.t3/worktrees/*)
+    printf 'status:   valid worktree (%s)\n' "$(basename "$REPO_ROOT")"
+    ;;
+  *)
+    printf 'status:   not a .t3 worktree\n'
+    exit 1
+    ;;
+esac

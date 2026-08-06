@@ -110,6 +110,10 @@ run = "./cluster/bin/benchmark"
 description = "Back up and install the OpenCode config with local and cluster providers"
 run = "./cluster/bin/install-opencode"
 
+[tasks."repo:context"]
+description = "Verify which Git worktree is being operated on (read-only)"
+run = "./cluster/bin/repo-context"
+
 [tasks."repo:check-shell"]
 description = "Check Bash syntax of cluster scripts"
 run = '''
