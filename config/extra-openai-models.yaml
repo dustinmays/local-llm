@@ -2,11 +2,15 @@
 #   ~/Library/Application Support/io.datasette.llm/extra-openai-models.yaml
 #
 # Tells the `llm` CLI how to reach the models being served warm by LM Studio
-# (OpenAI-compatible endpoint on port 1234). The shell helpers use these two
-# model ids: `coder-live` (4-bit) and `coder-live-hq` (8-bit).
+# (OpenAI-compatible endpoint on port 1234). The shell helpers use these
+# model ids: `coder-live` (4-bit), `coder-live-hq` (8-bit), and `dictate-live`
+# (small dictation-cleanup model).
 - model_id: coder-live
   model_name: qwen3-coder-30b-a3b-instruct@4bit
   api_base: http://localhost:1234/v1
 - model_id: coder-live-hq
   model_name: qwen3-coder-30b-a3b-instruct@8bit
+  api_base: http://localhost:1234/v1
+- model_id: dictate-live
+  model_name: qwen3-4b-instruct-2507
   api_base: http://localhost:1234/v1

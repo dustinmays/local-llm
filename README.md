@@ -185,7 +185,7 @@ lms ps                        # CONTEXT column should read 131072
 
 Every new terminal prints a reminder:
 
-> **local-llm ›** warm a model: **llm-serve** (4-bit·128K)  **llm-serve-hq** (8-bit·64K)  —  then: ask · chat · review
+> **local-llm ›** warm a model: **llm-serve** (4-bit·128K)  **llm-serve-hq** (8-bit·64K)  —  then: ask · chat · review · dictate
 
 Commands (work from any directory, no venv activation needed):
 
@@ -196,6 +196,7 @@ Commands (work from any directory, no venv activation needed):
 | `askc "…"` | Continue the **last** conversation |
 | `chat` / `chathq` | Interactive REPL (`exit` or Ctrl-D to quit) |
 | `review` | 8-bit code review of piped input — `git diff \| review` |
+| `dictate` | Clean up a raw dictation transcript — `pbpaste \| dictate \| pbcopy` |
 | `llm-serve` | Start server + load 4-bit @ 128K context |
 | `llm-serve-hq` | Load 8-bit @ 64K context (opencode / overnight) |
 | `llm-serve-stop` | Stop server + unload (frees the RAM) |
@@ -219,6 +220,48 @@ chat
 
 **Config knobs** live at the top of [`shell/llm.zsh`](shell/llm.zsh): `LLM_SERVE_CTX`,
 `LLM_SERVE_CTX_HQ`, port, and model ids.
+
+---
+
+## Dictation cleanup
+
+Raw speech-to-text (e.g. Whisper) output is often full of filler words, false
+starts, and missing punctuation. The 30B coder model is overkill for cleaning
+that up, so a small, fast model is loaded alongside it instead.
+
+- **Model:** [`mlx-community/Qwen3-4B-Instruct-2507-4bit`](https://huggingface.co/mlx-community/Qwen3-4B-Instruct-2507-4bit)
+  — ~2.3 GB, loads in a few seconds.
+- **Command:** `dictate` — pipes text through a system prompt that fixes
+  punctuation, capitalization, and grammar, and removes filler words and
+  stutters, while preserving the speaker's wording and meaning (no
+  summarizing or rephrasing).
+
+```bash
+pbpaste | dictate | pbcopy
+dictate < transcript.txt
+```
+
+Because the model is only ~2.3 GB, it **co-resides with the 30B coder
+model** — `dictate` never evicts whatever else is loaded, unlike `askhq`/
+`review` which must swap the 4-bit/8-bit coder model in and out.
+
+To download it:
+
+```bash
+lms get "https://huggingface.co/mlx-community/Qwen3-4B-Instruct-2507-4bit" -y
+```
+
+The warm endpoint is registered as `dictate-live` in
+[`config/extra-openai-models.yaml`](config/extra-openai-models.yaml). There is
+currently no cold (in-process) fallback for dictation — `dictate` requires
+`llm-serve`/`llm-serve-hq` to already be running. To add one, download the
+model into the llm-mlx cache and set an alias the same way the coder models
+are set up in [step 2 of setup](#2-download-the-models--configure-the-llm-cli):
+
+```bash
+llm mlx download-model mlx-community/Qwen3-4B-Instruct-2507-4bit
+llm aliases set dictate-fast mlx-community/Qwen3-4B-Instruct-2507-4bit
+```
 
 ---
 
