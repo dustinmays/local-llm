@@ -24,6 +24,11 @@ export LLM_SERVE_MODEL_HQ="qwen3-coder-30b-a3b-instruct@8bit"
 export LLM_SERVE_CTX=131072
 export LLM_SERVE_CTX_HQ=65536
 
+# Small, fast model for dictation cleanup (Whisper transcript -> fluent prose).
+# ~2.3 GB, co-resides easily alongside the 30B coder model — no eviction needed.
+export LLM_DICTATE_MODEL="qwen3-4b-instruct-2507"
+export LLM_DICTATE_CTX=8192
+
 # true if LM Studio's server is answering
 _llm_up() { curl -s -m 1 -o /dev/null "http://localhost:${LLM_SERVE_PORT}/v1/models" 2>/dev/null; }
 # which coder model is currently loaded (empty if none)
@@ -74,10 +79,30 @@ edge cases, security issues, and unclear naming. Be specific and cite the \
 relevant snippet. If the code is fine, say so briefly." "$@"
 }
 
+# --- dictation cleanup (small 4B model, no eviction of the coder model) ----
+# which dictation model is currently loaded (empty if none)
+_llm_dictate_loaded() { "$LMS_BIN" ps 2>/dev/null | grep -oE 'qwen3-4b-instruct-2507(@[0-9]+bit)?' | head -1; }
+# load the dictation model without touching whatever else is resident —
+# it's ~2.3 GB and comfortably co-resides with the 30B coder model.
+_llm_dictate_ensure() {
+  [ "$(_llm_dictate_loaded)" = "$LLM_DICTATE_MODEL" ] && return 0
+  "$LMS_BIN" load "$LLM_DICTATE_MODEL" -c "$LLM_DICTATE_CTX" --gpu max -y >/dev/null 2>&1
+}
+# Usage:  pbpaste | dictate | pbcopy        |        dictate < transcript.txt
+dictate() {
+  local m; if _llm_up; then _llm_dictate_ensure; m=dictate-live; else m=dictate-fast; fi
+  "$LLM_BIN" -m "$m" -s \
+    "You clean up raw speech-to-text dictation into fluent, well-punctuated \
+prose. Fix punctuation, capitalization, and grammar. Remove filler words, \
+false starts, and verbal stutters. Preserve the speaker's meaning, tone, and \
+word choice — do not summarize, rephrase ideas, or add content that wasn't \
+said. Output only the cleaned text, with no preamble or commentary." "$@"
+}
+
 # --- utilities -------------------------------------------------------------
 llm-log() { "$LLM_BIN" logs -n "${1:-3}"; }   # show last N logged exchanges
 
 # --- new-terminal reminder (interactive shells only) -----------------------
 if [[ -o interactive ]]; then
-  print -P "%F{244}local-llm ›%f warm a model: %F{39}llm-serve%f (4-bit·128K)  %F{39}llm-serve-hq%f (8-bit·64K)%F{244}  —  then: ask · chat · review%f"
+  print -P "%F{244}local-llm ›%f warm a model: %F{39}llm-serve%f (4-bit·128K)  %F{39}llm-serve-hq%f (8-bit·64K)%F{244}  —  then: ask · chat · review · dictate%f"
 fi
