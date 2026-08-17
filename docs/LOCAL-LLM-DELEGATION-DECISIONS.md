@@ -183,25 +183,45 @@ Status values are `accepted`, `provisional`, `superseded`, and `open`.
   that a missing required host fails the release gate instead of silently
   changing the scenario.
 
+### D016 — Model catalogs and loaded generation candidates are distinct
+
+- Status: accepted
+- Decided: 2026-08-17, LM Studio compatibility follow-up
+- Decision: Backend definitions explicitly select `openai` or `lmstudio`
+  model discovery. Controller and worker default to `lmstudio`; cluster
+  defaults to `openai`. Every result preserves sanitized `/v1/models` entries
+  in `models`, while `loaded_models` contains only active generative
+  candidates. Readiness, doctor checks, administrative health gates, and
+  delegation use `loaded_models`.
+- LM Studio behavior: after the existing health and OpenAI catalog reads, the
+  probe sends the read-only `GET /api/v1/models` request and intersects loaded
+  LLM instance IDs with the visible catalog. Unloaded JIT-visible models and
+  embeddings are not candidates. Malformed, non-successful, or inconsistent
+  native metadata fails closed as `UPSTREAM_PROTOCOL_ERROR`; the delegate does
+  not trigger JIT lifecycle changes to discover a model.
+- Rationale: LM Studio may expose all downloaded models through `/v1/models`
+  when JIT loading is enabled. Treating that catalog as resident state made a
+  single loaded LLM appear ambiguous and could select an unloaded model.
+
 ## Provisional defaults
 
 These values are safe starting points selected because the plan did not assign
 numbers. They are strict configuration fields and environment-overridable.
 Live release testing may tune them without changing the behavior contract.
 
-| ID | Configuration field | Default | Reasoning |
-| --- | --- | ---: | --- |
-| P001 | `mutex_timeout_ms` | 5,000 ms | Bounds local state contention without masking a stuck coordinator. |
-| P002 | `mutex_stale_ms` | 10,000 ms | Longer than the mutex acquisition deadline; state transactions should be very short. |
-| P003 | `heartbeat_interval_ms` | 2,000 ms | Frequent enough to detect a lost owner while keeping filesystem traffic modest. |
-| P004 | `lease_ttl_ms` | 10,000 ms | Allows multiple missed heartbeats before conservative expiry. |
-| P005 | `cooldown_ms` | 30,000 ms | Prevents immediate overlap after an ambiguous local generation outcome. |
-| P006 | `queue_capacity` | 32 tickets | Bounds state size and waiting clients. |
-| P007 | `queue_poll_interval_ms` | 50 ms | Responsive locally without a hot filesystem polling loop. |
-| P008 | `rate_limit_requests` | 60 starts | A permissive safety ceiling for local interactive use. |
-| P009 | `rate_limit_window_ms` | 60,000 ms | One-minute global sliding window paired with P008. |
-| P010 | routing materiality threshold | 0.05 mean correctness | Prefer measured correctness only when the five-workload difference exceeds five percentage points; otherwise prefer lower median latency. |
-| P011 | unavailable lifecycle metrics | `null` with safe reason | Startup time and upstream peak memory are not exposed by the read-only API; do not add lifecycle control solely to populate them. |
+| ID   | Configuration field           |                 Default | Reasoning                                                                                                                                 |
+| ---- | ----------------------------- | ----------------------: | ----------------------------------------------------------------------------------------------------------------------------------------- |
+| P001 | `mutex_timeout_ms`            |                5,000 ms | Bounds local state contention without masking a stuck coordinator.                                                                        |
+| P002 | `mutex_stale_ms`              |               10,000 ms | Longer than the mutex acquisition deadline; state transactions should be very short.                                                      |
+| P003 | `heartbeat_interval_ms`       |                2,000 ms | Frequent enough to detect a lost owner while keeping filesystem traffic modest.                                                           |
+| P004 | `lease_ttl_ms`                |               10,000 ms | Allows multiple missed heartbeats before conservative expiry.                                                                             |
+| P005 | `cooldown_ms`                 |               30,000 ms | Prevents immediate overlap after an ambiguous local generation outcome.                                                                   |
+| P006 | `queue_capacity`              |              32 tickets | Bounds state size and waiting clients.                                                                                                    |
+| P007 | `queue_poll_interval_ms`      |                   50 ms | Responsive locally without a hot filesystem polling loop.                                                                                 |
+| P008 | `rate_limit_requests`         |               60 starts | A permissive safety ceiling for local interactive use.                                                                                    |
+| P009 | `rate_limit_window_ms`        |               60,000 ms | One-minute global sliding window paired with P008.                                                                                        |
+| P010 | routing materiality threshold |   0.05 mean correctness | Prefer measured correctness only when the five-workload difference exceeds five percentage points; otherwise prefer lower median latency. |
+| P011 | unavailable lifecycle metrics | `null` with safe reason | Startup time and upstream peak memory are not exposed by the read-only API; do not add lifecycle control solely to populate them.         |
 
 Validation additionally requires the heartbeat interval to be less than half
 the lease TTL and the mutex stale threshold to exceed the mutex acquisition
@@ -228,9 +248,12 @@ deadline.
 - Evidence needed: sequential and overlapping calls from Codex CLI, Claude
   Code, GitHub Copilot CLI, and the VS Code/Copilot smoke path, with safe server
   logs retained.
-- Current state (2026-08-17): the strict live/evaluation harness exists, but
-  controller, worker, and cluster probes were all offline. No qualifying model
-  or performance evidence has been recorded, so routing remains provisional.
+- Current state (2026-08-17): the strict live/evaluation harness exists. The
+  controller is reachable and native LM Studio metadata reports one loaded LLM,
+  `qwen3.6-35b`; `/v1/models` also exposes unloaded `qwen/qwen3.8-27b` and an
+  embedding model because JIT loading is enabled. Neither installed LLM has a
+  decided fast/deep role, and no qualifying performance evidence has been
+  recorded. Worker and cluster remain unvalidated, so routing is provisional.
 
 ### O005 — Complete installed-host live evidence
 

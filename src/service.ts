@@ -28,6 +28,7 @@ function disabledStatus(config: DelegateConfig, backend: BackendName): Configure
     health: false,
     availability: "offline",
     models: [],
+    loaded_models: [],
     endpoint: definition.url,
     latency_ms: null,
     resource_groups: [...definition.resource_groups],
@@ -82,6 +83,7 @@ export class StatusService {
           health: false,
           availability: "offline",
           models: [],
+          loaded_models: [],
           endpoint: definition.url,
           latency_ms: null,
           resource_groups: [...definition.resource_groups],
@@ -104,7 +106,7 @@ export class StatusService {
       const cooldown = resourceStates.find((resource) => resource.availability === "cooldown");
       const degraded = resourceStates.find((resource) => resource.availability === "degraded");
       const queued = resourceStates.find((resource) => resource.availability === "queued");
-      if (!backend.health || backend.models.length === 0) {
+      if (!backend.health || backend.loaded_models.length === 0) {
         return {
           ...backend,
           resource_states: resourceStates,
@@ -190,20 +192,20 @@ export class StatusService {
       };
     });
     const healthyBackends = configuredBackends
-      .filter((backend) => backend.health && backend.models.length > 0)
+      .filter((backend) => backend.health && backend.loaded_models.length > 0)
       .map((backend) => backend.backend);
 
     const selected =
       requestedBackend === "auto"
         ? (configuredBackends.find((backend) => backend.availability === "ready") ??
-          configuredBackends.find((backend) => backend.health && backend.models.length > 0))
+          configuredBackends.find((backend) => backend.health && backend.loaded_models.length > 0))
         : configuredBackends.find((backend) => backend.backend === requestedBackend);
     const ready = selected?.availability === "ready";
     const fallback = configuredBackends.find((backend) => backend.enabled) ?? configuredBackends[0];
     const relevant = selected ?? fallback;
     const model =
-      selected?.health === true && selected.models.length === 1
-        ? (selected.models.at(0) ?? null)
+      selected?.health === true && selected.loaded_models.length === 1
+        ? (selected.loaded_models.at(0) ?? null)
         : null;
     const topError = ready
       ? null
@@ -233,7 +235,7 @@ export class StatusService {
       cooldown_remaining_seconds: selected?.cooldown_remaining_seconds ?? null,
       startup_hint: ready || relevant?.health === true ? null : (relevant?.startup_hint ?? null),
       warnings:
-        ready && selected.models.length > 1
+        ready && selected.loaded_models.length > 1
           ? ["Multiple models are loaded; top-level model selection is intentionally ambiguous."]
           : [],
       error: topError,

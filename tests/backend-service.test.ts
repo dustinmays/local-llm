@@ -8,13 +8,22 @@ import { StatusService } from "../src/service.js";
 import { startFakeUpstream } from "./helpers/fake-upstream.js";
 
 function definition(url: string) {
-  return { ...DEFAULT_CONFIG.backends.controller, url };
+  return { ...DEFAULT_CONFIG.backends.controller, url, model_discovery: "openai" as const };
 }
 
 async function probe(url: string, timeout = 500): Promise<ConfiguredBackendStatus> {
   return await new OpenAiCompatibleProbe().probe({
     backend: "controller",
     definition: definition(url),
+    connectTimeoutMs: Math.min(timeout, 100),
+    responseTimeoutMs: timeout,
+  });
+}
+
+async function probeLmStudio(url: string, timeout = 500): Promise<ConfiguredBackendStatus> {
+  return await new OpenAiCompatibleProbe().probe({
+    backend: "controller",
+    definition: { ...DEFAULT_CONFIG.backends.controller, url, model_discovery: "lmstudio" },
     connectTimeoutMs: Math.min(timeout, 100),
     responseTimeoutMs: timeout,
   });
@@ -30,6 +39,7 @@ describe("OpenAI-compatible backend probe", () => {
       expect(result.models).toEqual([
         { id: "fake-model", object: "model", created: 1, owned_by: "local" },
       ]);
+      expect(result.loaded_models).toEqual(result.models);
       expect(upstream.requests).toEqual([
         { method: "GET", path: "/health" },
         { method: "GET", path: "/v1/models" },
@@ -54,6 +64,140 @@ describe("OpenAI-compatible backend probe", () => {
         { id: "one", object: null, created: null, owned_by: null },
         { id: "two", object: null, created: null, owned_by: "owner" },
       ]);
+    } finally {
+      await upstream.close();
+    }
+  });
+
+  it("uses LM Studio native metadata to exclude JIT-visible unloaded and embedding models", async () => {
+    const upstream = await startFakeUpstream((request, response) => {
+      response.setHeader("content-type", "application/json");
+      if (request.url === "/health") {
+        response.end('{"error":"Unexpected endpoint or method. (GET /health)"}');
+        return;
+      }
+      if (request.url === "/v1/models") {
+        response.end(
+          JSON.stringify({
+            data: [
+              { id: "loaded-llm", object: "model", owned_by: "organization_owner" },
+              { id: "unloaded-llm", object: "model", owned_by: "organization_owner" },
+              { id: "embedding-model", object: "model", owned_by: "organization_owner" },
+            ],
+          }),
+        );
+        return;
+      }
+      if (request.url === "/api/v1/models") {
+        response.end(
+          JSON.stringify({
+            models: [
+              {
+                type: "llm",
+                key: "loaded-llm",
+                loaded_instances: [{ id: "loaded-llm", config: { context_length: 65_536 } }],
+              },
+              { type: "llm", key: "unloaded-llm", loaded_instances: [] },
+              { type: "embedding", key: "embedding-model", loaded_instances: [] },
+            ],
+          }),
+        );
+        return;
+      }
+      response.statusCode = 404;
+      response.end("{}");
+    });
+    try {
+      const result = await probeLmStudio(upstream.url);
+      expect(result.availability).toBe("ready");
+      expect(result.models.map((model) => model.id)).toEqual([
+        "loaded-llm",
+        "unloaded-llm",
+        "embedding-model",
+      ]);
+      expect(result.loaded_models.map((model) => model.id)).toEqual(["loaded-llm"]);
+      expect(result.warnings).toEqual([
+        "Excluded 2 unloaded or non-generative LM Studio catalog entries.",
+      ]);
+      expect(upstream.requests).toEqual([
+        { method: "GET", path: "/health" },
+        { method: "GET", path: "/v1/models" },
+        { method: "GET", path: "/api/v1/models" },
+      ]);
+    } finally {
+      await upstream.close();
+    }
+  });
+
+  it("maps an LM Studio catalog with no loaded LLM to MODEL_NOT_LOADED", async () => {
+    const upstream = await startFakeUpstream((request, response) => {
+      response.setHeader("content-type", "application/json");
+      if (request.url === "/health") response.end("{}");
+      else if (request.url === "/v1/models") response.end('{"data":[{"id":"available"}]}');
+      else if (request.url === "/api/v1/models") {
+        response.end('{"models":[{"type":"llm","key":"available","loaded_instances":[]}]}');
+      } else {
+        response.statusCode = 404;
+        response.end("{}");
+      }
+    });
+    try {
+      const result = await probeLmStudio(upstream.url);
+      expect(result.health).toBe(true);
+      expect(result.models.map((model) => model.id)).toEqual(["available"]);
+      expect(result.loaded_models).toEqual([]);
+      expect(result.error?.code).toBe("MODEL_NOT_LOADED");
+    } finally {
+      await upstream.close();
+    }
+  });
+
+  it.each([
+    ["malformed native JSON", 200, "{"],
+    ["schema-invalid native metadata", 200, '{"models":[{"type":"llm"}]}'],
+    ["non-success native response", 503, '{"private":"do not expose"}'],
+  ])("fails closed for %s", async (_label, statusCode, body) => {
+    const upstream = await startFakeUpstream((request, response) => {
+      response.setHeader("content-type", "application/json");
+      if (request.url === "/health") response.end("{}");
+      else if (request.url === "/v1/models") response.end('{"data":[{"id":"model"}]}');
+      else if (request.url === "/api/v1/models") {
+        response.statusCode = statusCode;
+        response.end(body);
+      } else {
+        response.statusCode = 404;
+        response.end("{}");
+      }
+    });
+    try {
+      const result = await probeLmStudio(upstream.url);
+      expect(result.health).toBe(true);
+      expect(result.loaded_models).toEqual([]);
+      expect(result.error?.code).toBe("UPSTREAM_PROTOCOL_ERROR");
+      expect(JSON.stringify(result)).not.toContain("do not expose");
+    } finally {
+      await upstream.close();
+    }
+  });
+
+  it("fails closed when LM Studio loaded instance IDs do not match the visible catalog", async () => {
+    const upstream = await startFakeUpstream((request, response) => {
+      response.setHeader("content-type", "application/json");
+      if (request.url === "/health") response.end("{}");
+      else if (request.url === "/v1/models") response.end('{"data":[{"id":"visible"}]}');
+      else if (request.url === "/api/v1/models") {
+        response.end(
+          '{"models":[{"type":"llm","key":"visible","loaded_instances":[{"id":"missing"}]}]}',
+        );
+      } else {
+        response.statusCode = 404;
+        response.end("{}");
+      }
+    });
+    try {
+      const result = await probeLmStudio(upstream.url);
+      expect(result.error?.code).toBe("UPSTREAM_PROTOCOL_ERROR");
+      expect(result.loaded_models).toEqual([]);
     } finally {
       await upstream.close();
     }
@@ -148,12 +292,14 @@ describe("OpenAI-compatible backend probe", () => {
 });
 
 function ready(request: ProbeRequest, models = ["model"]): ConfiguredBackendStatus {
+  const metadata = models.map((id) => ({ id, object: null, created: null, owned_by: null }));
   return {
     backend: request.backend,
     enabled: true,
     health: true,
     availability: "ready",
-    models: models.map((id) => ({ id, object: null, created: null, owned_by: null })),
+    models: metadata,
+    loaded_models: metadata,
     endpoint: request.definition.url,
     latency_ms: 1,
     resource_groups: [...request.definition.resource_groups],
@@ -213,6 +359,29 @@ describe("status orchestration", () => {
     expect(status.selected_backend).toBe("worker");
     expect(status.model).toBeNull();
     expect(status.warnings).toHaveLength(1);
+  });
+
+  it("selects one loaded model even when the visible catalog contains multiple models", async () => {
+    const adapter: BackendProbe = {
+      probe(request) {
+        const value = ready(request, ["loaded", "unloaded", "embedding"]);
+        const loaded = value.models.at(0);
+        if (loaded === undefined) throw new Error("Missing loaded fixture model");
+        value.loaded_models = [loaded];
+        value.warnings = ["Excluded 2 unloaded or non-generative LM Studio catalog entries."];
+        return Promise.resolve(value);
+      },
+    };
+    const service = new StatusService(
+      DEFAULT_CONFIG,
+      adapter,
+      new Logger("error", () => undefined),
+    );
+    const status = await service.status({ backend: "controller" });
+    expect(status.model?.id).toBe("loaded");
+    expect(status.configured_backends[0]?.models).toHaveLength(3);
+    expect(status.configured_backends[0]?.loaded_models).toHaveLength(1);
+    expect(status.warnings).toEqual([]);
   });
 
   it("classifies an unambiguous status model only through configured exact IDs", async () => {

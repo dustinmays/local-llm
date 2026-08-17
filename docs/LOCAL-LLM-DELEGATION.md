@@ -132,10 +132,15 @@ query strings, or fragments.
 
 Issue 11 registers only `local_llm_status`; `local_llm_delegate` begins in
 issue 12. Each configured backend result includes its enabled and health
-state, availability, complete sanitized model list, safe endpoint, latency,
-resource groups, warnings, startup hint, and nullable stable error. The
-top-level model remains null when `/v1/models` returns more than one model, and
-quality remains `unknown` until issue 12 adds explicit classification.
+state, availability, complete sanitized visible-model catalog, loaded
+generative-model list, safe endpoint, latency, resource groups, warnings,
+startup hint, and nullable stable error. Generic OpenAI-compatible discovery
+treats `/v1/models` as loaded. LM Studio discovery additionally reads
+`/api/v1/models` and intersects its loaded LLM instances with the visible
+catalog, excluding unloaded and embedding entries exposed by JIT loading. The
+top-level model remains null when more than one loaded generative model is
+present, and quality remains `unknown` until issue 12 adds explicit
+classification.
 
 The direct `status` and `doctor` commands are human-readable by default and
 emit one schema-validated document with `--json`. Their exit codes are 0 for a
@@ -158,7 +163,7 @@ deterministic manifest.
 
 Prompt rendering labels repository text as untrusted and carries the task,
 requested backend/quality, manifest, and delimited contents. Generation uses
-the exact unambiguous model ID returned by `/v1/models`, propagates the caller's
+the exact unambiguous loaded generative model ID, propagates the caller's
 output-token limit, has a 120-second default deadline, and never retries an
 ambiguous generation. Exact configured model-ID lists classify `fast` and
 `deep`; unknown or ambiguous selections fail safely when a requested quality
@@ -234,13 +239,13 @@ receive it.
 Use a switchable hybrid design rather than committing to only sharded or only
 independent operation.
 
-| Mode | Hardware | Preferred use |
-|---|---|---|
-| Single fast | One Mac, 30B 4-bit | Summaries, extraction, bounded diff review, test ideas |
-| Single HQ | One Mac, 30B 8-bit | Careful review when the 30B model is sufficient |
-| Cluster deep | Both Macs, 122B 4-bit | Ambiguous reasoning, architecture, broad review |
-| Independent workers | One model per Mac | Two genuinely independent tasks in parallel |
-| Cluster fast | Both Macs, 35B 4-bit | Diagnostics and measured compatibility cases |
+| Mode                | Hardware              | Preferred use                                          |
+| ------------------- | --------------------- | ------------------------------------------------------ |
+| Single fast         | One Mac, 30B 4-bit    | Summaries, extraction, bounded diff review, test ideas |
+| Single HQ           | One Mac, 30B 8-bit    | Careful review when the 30B model is sufficient        |
+| Cluster deep        | Both Macs, 122B 4-bit | Ambiguous reasoning, architecture, broad review        |
+| Independent workers | One model per Mac     | Two genuinely independent tasks in parallel            |
+| Cluster fast        | Both Macs, 35B 4-bit  | Diagnostics and measured compatibility cases           |
 
 The governing rule is:
 

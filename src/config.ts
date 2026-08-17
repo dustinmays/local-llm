@@ -81,10 +81,14 @@ export const ModelQualityConfigSchema = z
     }
   });
 
+export const ModelDiscoverySchema = z.enum(["openai", "lmstudio"]);
+export type ModelDiscovery = z.infer<typeof ModelDiscoverySchema>;
+
 export const BackendDefinitionSchema = z
   .object({
     enabled: z.boolean(),
     url: LoopbackUrlSchema,
+    model_discovery: ModelDiscoverySchema,
     resource_groups: z
       .array(z.string().min(1).max(128))
       .min(1)
@@ -231,6 +235,7 @@ export const DEFAULT_CONFIG: DelegateConfig = DelegateConfigSchema.parse({
     controller: {
       enabled: true,
       url: "http://127.0.0.1:1234/v1",
+      model_discovery: "lmstudio",
       resource_groups: ["controller"],
       startup_hint: DEFAULT_STARTUP_HINTS.controller,
       model_quality: {
@@ -247,6 +252,7 @@ export const DEFAULT_CONFIG: DelegateConfig = DelegateConfigSchema.parse({
     worker: {
       enabled: true,
       url: "http://127.0.0.1:1235/v1",
+      model_discovery: "lmstudio",
       resource_groups: ["worker"],
       startup_hint: DEFAULT_STARTUP_HINTS.worker,
       model_quality: {
@@ -263,6 +269,7 @@ export const DEFAULT_CONFIG: DelegateConfig = DelegateConfigSchema.parse({
     cluster: {
       enabled: true,
       url: "http://127.0.0.1:8080/v1",
+      model_discovery: "openai",
       resource_groups: ["controller", "worker"],
       startup_hint: DEFAULT_STARTUP_HINTS.cluster,
       model_quality: {
@@ -321,6 +328,7 @@ function mergeFile(
     return {
       enabled: overlay.enabled ?? base.enabled,
       url: overlay.url ?? base.url,
+      model_discovery: overlay.model_discovery ?? base.model_discovery,
       resource_groups: overlay.resource_groups ?? base.resource_groups,
       startup_hint: overlay.startup_hint ?? base.startup_hint,
       model_quality: {
@@ -417,9 +425,13 @@ function applyEnvironment(
     const prefix = `LOCAL_MLX_DELEGATE_${backend.toUpperCase()}`;
     const url = env[`${prefix}_URL`];
     const enabled = env[`${prefix}_ENABLED`];
+    const modelDiscovery = env[`${prefix}_MODEL_DISCOVERY`];
     if (url !== undefined) result.backends[backend].url = url;
     if (enabled !== undefined) {
       result.backends[backend].enabled = parseBoolean(`${prefix}_ENABLED`, enabled);
+    }
+    if (modelDiscovery !== undefined) {
+      result.backends[backend].model_discovery = modelDiscovery as ModelDiscovery;
     }
   }
   return result;

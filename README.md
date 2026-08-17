@@ -18,9 +18,11 @@ for configurable, tensor-sharded models up to a 122B mixture-of-experts profile.
 The root `local-mlx-delegate` TypeScript package provides a direct CLI and an
 MCP stdio server that inspect the existing controller, worker tunnel, and
 cluster, and can send bounded advisory tasks to an already-loaded model.
-Status only sends `GET /health` and `GET /v1/models`; delegation additionally
-sends `POST /v1/chat/completions`. Neither path starts, stops, loads, unloads,
-swaps, or otherwise changes a model.
+Status sends `GET /health` and `GET /v1/models`; LM Studio backends additionally
+send the read-only `GET /api/v1/models` request to distinguish loaded LLMs from
+JIT-visible downloaded and embedding models. Delegation additionally sends
+`POST /v1/chat/completions`. Neither path starts, stops, loads, unloads, swaps,
+or otherwise changes a model.
 
 Install the exact Node 24 and pnpm toolchain, then build:
 
@@ -88,12 +90,12 @@ atomically. Configuration paths containing symlinks are rejected.
 
 Verify native discovery after trusting the project in each installed host:
 
-| Host | Discovery | Explicit status invocation |
-|---|---|---|
-| Codex CLI | `codex mcp list --json` or `/mcp` | Ask: “Call `local_llm_status` and report only its structured result.” |
-| Claude Code | `claude mcp get local-mlx-delegate` or `/mcp` | Use the same explicit request after approving the project server. |
-| Copilot CLI | `copilot mcp get local-mlx-delegate --json` or `/mcp show local-mlx-delegate` | Use the same explicit request in a trusted folder. |
-| VS Code/Copilot | Run **MCP: List Servers** | In Agent mode, explicitly request `local_llm_status`. |
+| Host            | Discovery                                                                     | Explicit status invocation                                            |
+| --------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Codex CLI       | `codex mcp list --json` or `/mcp`                                             | Ask: “Call `local_llm_status` and report only its structured result.” |
+| Claude Code     | `claude mcp get local-mlx-delegate` or `/mcp`                                 | Use the same explicit request after approving the project server.     |
+| Copilot CLI     | `copilot mcp get local-mlx-delegate --json` or `/mcp show local-mlx-delegate` | Use the same explicit request in a trusted folder.                    |
+| VS Code/Copilot | Run **MCP: List Servers**                                                     | In Agent mode, explicitly request `local_llm_status`.                 |
 
 `mise run delegate:host-smoke` checks every installed CLI's native discovery
 and invokes status through the configured stdio command. It skips host
@@ -117,16 +119,22 @@ stdio services; this integration is for clients running on the Mac.
 
 The built-in endpoints and resource groups are:
 
-| Backend | API base URL | Resource groups | Startup hint |
-|---|---|---|---|
-| controller | `http://127.0.0.1:1234/v1` | `controller` | `llm-serve` or `llm-serve-hq` |
-| worker | `http://127.0.0.1:1235/v1` | `worker` | Start worker LM Studio and the localhost port-1235 SSH tunnel |
-| cluster | `http://127.0.0.1:8080/v1` | `controller`, `worker` | `mise run cluster:start-fast` or `mise run cluster:start-overnight` |
+| Backend    | API base URL               | Model discovery | Resource groups        | Startup hint                                                        |
+| ---------- | -------------------------- | --------------- | ---------------------- | ------------------------------------------------------------------- |
+| controller | `http://127.0.0.1:1234/v1` | `lmstudio`      | `controller`           | `llm-serve` or `llm-serve-hq`                                       |
+| worker     | `http://127.0.0.1:1235/v1` | `lmstudio`      | `worker`               | Start worker LM Studio and the localhost port-1235 SSH tunnel       |
+| cluster    | `http://127.0.0.1:8080/v1` | `openai`        | `controller`, `worker` | `mise run cluster:start-fast` or `mise run cluster:start-overnight` |
 
 Configuration precedence is built-in defaults, an optional JSON file, explicit
 environment variables, then invocation flags. Select the JSON file with
 `--config PATH` or `LOCAL_MLX_DELEGATE_CONFIG`; the flag wins. A configuration
 file is strict, uses `"schema_version": 1`, and may partially override fields:
+
+Status JSON preserves the sanitized OpenAI-visible catalog in `models` and
+reports active generative candidates in `loaded_models`. Readiness, top-level
+selection, doctor checks, and delegation use only `loaded_models`. This matters
+when LM Studio JIT loading makes `/v1/models` include downloaded-but-unloaded
+LLMs and embedding models.
 
 ```json
 {
@@ -151,6 +159,7 @@ file is strict, uses `"schema_version": 1`, and may partially override fields:
     "controller": {
       "enabled": true,
       "url": "http://127.0.0.1:1234/v1",
+      "model_discovery": "lmstudio",
       "model_quality": {
         "fast": ["qwen3-coder-30b-a3b-instruct@4bit"],
         "deep": ["qwen3-coder-30b-a3b-instruct@8bit"]
@@ -176,7 +185,9 @@ Environment overrides are
 `LOCAL_MLX_DELEGATE_QUEUE_POLL_INTERVAL_MS`,
 `LOCAL_MLX_DELEGATE_RATE_LIMIT_REQUESTS`,
 `LOCAL_MLX_DELEGATE_RATE_LIMIT_WINDOW_MS`, and
-`LOCAL_MLX_DELEGATE_{CONTROLLER,WORKER,CLUSTER}_{URL,ENABLED}`. Boolean values
+`LOCAL_MLX_DELEGATE_{CONTROLLER,WORKER,CLUSTER}_{URL,ENABLED,MODEL_DISCOVERY}`.
+Model discovery is `lmstudio` for LM Studio endpoints and `openai` for generic
+OpenAI-compatible endpoints. Boolean values
 are `true`, `false`, `1`, or `0`. Backend URLs must be HTTP(S) loopback URLs
 without credentials, query strings, or fragments. Model quality is classified
 only by exact configured IDs; it is never guessed from a model name.
@@ -276,8 +287,8 @@ symlinks, so it costs no extra disk.
 One coding-specialized Mixture-of-Experts model (30.5B total params, ~3.3B active per token —
 so it's fast despite its size), run at two precisions:
 
-| Role | LM Studio id | Repo | On disk |
-|------|--------------|------|---------|
+| Role                    | LM Studio id                        | Repo                                              | On disk |
+| ----------------------- | ----------------------------------- | ------------------------------------------------- | ------- |
 | **Daily driver** (fast) | `qwen3-coder-30b-a3b-instruct@4bit` | `mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit` | 17.2 GB |
 | **High quality** (slow) | `qwen3-coder-30b-a3b-instruct@8bit` | `mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit` | 32.5 GB |
 
@@ -405,23 +416,23 @@ lms ps                        # CONTEXT column should read 131072
 
 Every new terminal prints a reminder:
 
-> **local-llm ›** warm a model: **llm-serve** (4-bit·128K)  **llm-serve-hq** (8-bit·64K)  —  then: ask · chat · review · dictate
+> **local-llm ›** warm a model: **llm-serve** (4-bit·128K) **llm-serve-hq** (8-bit·64K) — then: ask · chat · review · dictate
 
 Commands (work from any directory, no venv activation needed):
 
-| Command | What it does |
-|---------|--------------|
-| `ask "…"` | One-shot on the **4-bit** daily driver |
-| `askhq "…"` | One-shot on the **8-bit** model |
-| `askc "…"` | Continue the **last** conversation |
-| `chat` / `chathq` | Interactive REPL (`exit` or Ctrl-D to quit) |
-| `review` | 8-bit code review of piped input — `git diff \| review` |
-| `dictate` | Clean up a raw dictation transcript — `pbpaste \| dictate \| pbcopy` |
-| `llm-serve` | Start server + load 4-bit @ 128K context |
-| `llm-serve-hq` | Load 8-bit @ 64K context (opencode / overnight) |
-| `llm-serve-stop` | Stop server + unload (frees the RAM) |
-| `llm-serve-status` | Server status + which model is loaded |
-| `llm-log [N]` | Show last N logged exchanges |
+| Command            | What it does                                                         |
+| ------------------ | -------------------------------------------------------------------- |
+| `ask "…"`          | One-shot on the **4-bit** daily driver                               |
+| `askhq "…"`        | One-shot on the **8-bit** model                                      |
+| `askc "…"`         | Continue the **last** conversation                                   |
+| `chat` / `chathq`  | Interactive REPL (`exit` or Ctrl-D to quit)                          |
+| `review`           | 8-bit code review of piped input — `git diff \| review`              |
+| `dictate`          | Clean up a raw dictation transcript — `pbpaste \| dictate \| pbcopy` |
+| `llm-serve`        | Start server + load 4-bit @ 128K context                             |
+| `llm-serve-hq`     | Load 8-bit @ 64K context (opencode / overnight)                      |
+| `llm-serve-stop`   | Stop server + unload (frees the RAM)                                 |
+| `llm-serve-status` | Server status + which model is loaded                                |
+| `llm-log [N]`      | Show last N logged exchanges                                         |
 
 ```bash
 ask "explain Python's GIL in two sentences"
@@ -499,10 +510,11 @@ opencode run "review the diff on this branch and list risky changes"   # one-sho
 
 > **Always `llm-serve`/`llm-serve-hq` before opencode.** If you instead load the model from
 > LM Studio's **menu-bar / GUI "Load Model"**, it uses LM Studio's tiny **8K default context**
-> and opencode fails with *"number of tokens to keep from the initial prompt is greater than
-> the context length."* Our commands load at 128K / 64K, which fits opencode's prompt + tools
-> + files. (To keep the menu-bar workflow, set the model's default context to 131072 in the
-> LM Studio GUI and save it as the default.)
+> and opencode fails with _"number of tokens to keep from the initial prompt is greater than
+> the context length."_ Our commands load at 128K / 64K, which fits opencode's prompt + tools
+>
+> - files. (To keep the menu-bar workflow, set the model's default context to 131072 in the
+>   LM Studio GUI and save it as the default.)
 
 - **Model choice:** opencode uses whichever model is loaded (4-bit by default). For
   walk-away quality, `llm-serve-hq`, or pass `-m lmstudio/qwen3-coder-30b-a3b-instruct@8bit`.
@@ -699,32 +711,32 @@ that is fixed, use direct OpenCode for policy enforcement or keep T3 supervised.
 
 ### Cluster mise commands
 
-| Command | Purpose |
-|---------|---------|
-| `mise run setup` | Install the pinned Python/MLX environment on the current Mac |
-| `mise run cluster:init` | Create the controller's gitignored local configuration |
-| `mise run cluster:ssh-setup` | Install dedicated passwordless controller-to-worker SSH |
-| `mise run cluster:worker-setup` | Bootstrap the M4 from its existing repository clone |
-| `mise run cluster:topology` | Inspect Thunderbolt interfaces without changing them |
-| `mise run cluster:configure` | Configure the selected Thunderbolt backend and generate its MLX hostfile |
-| `mise run cluster:smoke` | Exercise a two-rank MLX collective operation |
-| `mise run model:download-fast` | Cache the fast profile on this Mac only |
-| `mise run model:download-overnight` | Cache the overnight profile on this Mac only |
-| `mise run model:download-all` | Cache fast then overnight on this Mac only |
-| `mise run model:remove-llama` | Interactively remove managed Llama caches on this Mac |
-| `mise run cluster:start-test` | Start the small model and verify real generation |
-| `mise run cluster:check` | Validate both Macs and fast-profile caches |
-| `mise run cluster:check-overnight` | Validate both Macs and overnight-profile caches |
-| `mise run cluster:start` / `cluster:start-fast` | Start the fast profile across both ranks |
-| `mise run cluster:start-overnight` | Start the overnight profile across both ranks |
-| `mise run cluster:test` | Send a chat completion to the active cluster model |
-| `mise run cluster:test-tools` | Require a structured function call from the active model |
-| `mise run cluster:benchmark` | Measure uncached prompt and generation latency |
-| `mise run cluster:status` | Show launcher, active model, API, and worker status |
-| `mise run cluster:logs` | Follow the distributed server log |
-| `mise run cluster:stop` | Stop the launcher and clean managed ranks on both Macs |
-| `mise run opencode:install` | Back up and regenerate the OpenCode configuration |
-| `mise run repo:check-shell` | Validate Bash syntax of cluster scripts |
+| Command                                         | Purpose                                                                  |
+| ----------------------------------------------- | ------------------------------------------------------------------------ |
+| `mise run setup`                                | Install the pinned Python/MLX environment on the current Mac             |
+| `mise run cluster:init`                         | Create the controller's gitignored local configuration                   |
+| `mise run cluster:ssh-setup`                    | Install dedicated passwordless controller-to-worker SSH                  |
+| `mise run cluster:worker-setup`                 | Bootstrap the M4 from its existing repository clone                      |
+| `mise run cluster:topology`                     | Inspect Thunderbolt interfaces without changing them                     |
+| `mise run cluster:configure`                    | Configure the selected Thunderbolt backend and generate its MLX hostfile |
+| `mise run cluster:smoke`                        | Exercise a two-rank MLX collective operation                             |
+| `mise run model:download-fast`                  | Cache the fast profile on this Mac only                                  |
+| `mise run model:download-overnight`             | Cache the overnight profile on this Mac only                             |
+| `mise run model:download-all`                   | Cache fast then overnight on this Mac only                               |
+| `mise run model:remove-llama`                   | Interactively remove managed Llama caches on this Mac                    |
+| `mise run cluster:start-test`                   | Start the small model and verify real generation                         |
+| `mise run cluster:check`                        | Validate both Macs and fast-profile caches                               |
+| `mise run cluster:check-overnight`              | Validate both Macs and overnight-profile caches                          |
+| `mise run cluster:start` / `cluster:start-fast` | Start the fast profile across both ranks                                 |
+| `mise run cluster:start-overnight`              | Start the overnight profile across both ranks                            |
+| `mise run cluster:test`                         | Send a chat completion to the active cluster model                       |
+| `mise run cluster:test-tools`                   | Require a structured function call from the active model                 |
+| `mise run cluster:benchmark`                    | Measure uncached prompt and generation latency                           |
+| `mise run cluster:status`                       | Show launcher, active model, API, and worker status                      |
+| `mise run cluster:logs`                         | Follow the distributed server log                                        |
+| `mise run cluster:stop`                         | Stop the launcher and clean managed ranks on both Macs                   |
+| `mise run opencode:install`                     | Back up and regenerate the OpenCode configuration                        |
+| `mise run repo:check-shell`                     | Validate Bash syntax of cluster scripts                                  |
 
 See **[Two-Mac MLX cluster](docs/CLUSTER.md)** for the full one-time setup,
 Recovery-mode RDMA step, SSH bootstrap, T3/OpenCode configuration, daily
@@ -752,26 +764,26 @@ Give it a small, well-scoped task and walk away. For very large contexts you can
 KV cache is ~96 KB/token, so **RAM ≈ weights + context×96 KB**. Loaded contexts are chosen to
 stay safely under 48 GB:
 
-| Model | Weights | Context | KV cache | Total |
-|-------|---------|---------|----------|-------|
-| 4-bit | 17 GB | 128K (`LLM_SERVE_CTX`) | ~13 GB | ~30 GB |
-| 8-bit | 32 GB | 64K (`LLM_SERVE_CTX_HQ`) | ~6 GB | ~38 GB |
+| Model | Weights | Context                  | KV cache | Total  |
+| ----- | ------- | ------------------------ | -------- | ------ |
+| 4-bit | 17 GB   | 128K (`LLM_SERVE_CTX`)   | ~13 GB   | ~30 GB |
+| 8-bit | 32 GB   | 64K (`LLM_SERVE_CTX_HQ`) | ~6 GB    | ~38 GB |
 
 MLX does **not** swap — if a load would exceed RAM, LM Studio refuses it. Raise these knobs
 for bigger repos only if the total stays under ~44 GB.
 
 ### Where everything lives
 
-| Path | What |
-|------|------|
-| `shell/llm.zsh` | the `ask`/`chat`/`llm-serve` commands (sourced from `~/.zshrc`) |
-| `config/` | LM Studio config and the OpenCode template |
-| `cluster/config.local.env` | gitignored controller settings and model variables |
-| `~/Library/Application Support/io.datasette.llm/extra-openai-models.yaml` | tells `llm` how to reach LM Studio |
-| `~/.config/opencode/opencode.json` | tells opencode how to reach LM Studio |
-| `~/.lmstudio/models/mlx-community/*` | symlinks → the HF weights (LM Studio's view) |
-| `~/.cache/huggingface/hub/*` | the actual model weights |
-| `.venv/` | Python env (mlx, mlx-lm, llm, llm-mlx) |
+| Path                                                                      | What                                                            |
+| ------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| `shell/llm.zsh`                                                           | the `ask`/`chat`/`llm-serve` commands (sourced from `~/.zshrc`) |
+| `config/`                                                                 | LM Studio config and the OpenCode template                      |
+| `cluster/config.local.env`                                                | gitignored controller settings and model variables              |
+| `~/Library/Application Support/io.datasette.llm/extra-openai-models.yaml` | tells `llm` how to reach LM Studio                              |
+| `~/.config/opencode/opencode.json`                                        | tells opencode how to reach LM Studio                           |
+| `~/.lmstudio/models/mlx-community/*`                                      | symlinks → the HF weights (LM Studio's view)                    |
+| `~/.cache/huggingface/hub/*`                                              | the actual model weights                                        |
+| `.venv/`                                                                  | Python env (mlx, mlx-lm, llm, llm-mlx)                          |
 
 ### Swapping the single-Mac model
 
@@ -784,7 +796,7 @@ The shell helpers reference **aliases**, so swapping is cheap:
 
 ### Why the single-Mac model
 
-- **Skip Qwen2.5-Coder-32B** (previous gen): it emits tool calls as *plain text* and **breaks
+- **Skip Qwen2.5-Coder-32B** (previous gen): it emits tool calls as _plain text_ and **breaks
   in opencode**. The Qwen3 generation fixed this.
 - **The 80B Qwen3-Coder-Next doesn't fit.** ~45 GB at 4-bit leaves no room for KV cache in
   48 GB (MLX can't swap).
@@ -812,4 +824,4 @@ pip freeze > requirements.txt          # commit it; reproduce with: pip install 
 - **`ask` is slow (~3 s) not instant** — the warm server isn't running; run `llm-serve`.
   (`llm-serve-status` shows state.)
 - **MLX on CPU (`Device(cpu, 0)`)** — you're on Intel or an x86/Rosetta Python; `python -c
-  "import platform; print(platform.machine())"` must print `arm64`.
+"import platform; print(platform.machine())"` must print `arm64`.

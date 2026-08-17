@@ -267,6 +267,7 @@ describe("cross-process availability coordinator", () => {
           health: true,
           availability: "ready",
           models: [{ id: "model", object: null, created: null, owned_by: null }],
+          loaded_models: [{ id: "model", object: null, created: null, owned_by: null }],
           endpoint: request.definition.url,
           latency_ms: 1,
           resource_groups: [...request.definition.resource_groups],
