@@ -13,6 +13,10 @@ export type LogEvent = {
   durationMs?: number | null;
   inputCharacters?: number | null;
   outputCharacters?: number | null;
+  promptTokensEstimate?: number | null;
+  promptTokensActual?: number | null;
+  completionTokensActual?: number | null;
+  contextUtilizationPercent?: number | null;
   queueMs?: number | null;
   outcome?: string | null;
   errorCode?: StableErrorCode | null;
@@ -55,6 +59,22 @@ export class Logger {
         event.outputCharacters === undefined || event.outputCharacters === null
           ? null
           : Math.max(0, Math.round(event.outputCharacters)),
+      prompt_tokens_estimate:
+        event.promptTokensEstimate === undefined || event.promptTokensEstimate === null
+          ? null
+          : Math.max(0, Math.round(event.promptTokensEstimate)),
+      prompt_tokens_actual:
+        event.promptTokensActual === undefined || event.promptTokensActual === null
+          ? null
+          : Math.max(0, Math.round(event.promptTokensActual)),
+      completion_tokens_actual:
+        event.completionTokensActual === undefined || event.completionTokensActual === null
+          ? null
+          : Math.max(0, Math.round(event.completionTokensActual)),
+      context_utilization_percent:
+        event.contextUtilizationPercent === undefined || event.contextUtilizationPercent === null
+          ? null
+          : Math.max(0, Math.min(100, Math.round(event.contextUtilizationPercent))),
       queue_ms:
         event.queueMs === undefined || event.queueMs === null
           ? null

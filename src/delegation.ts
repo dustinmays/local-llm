@@ -4,6 +4,7 @@ import { OpenAiCompatibleCompletionAdapter } from "./backends/openai-compatible.
 import { classifyModel, type DelegateConfig } from "./config.js";
 import {
   collectContext,
+  estimateTokens,
   resolveWorkspaceRoot,
   validateContextSelection,
   type ResolvedWorkspace,
@@ -34,6 +35,20 @@ type Selection = {
   quality: QualityClass;
   warnings: string[];
 };
+
+const CONTEXT_MANIFEST_RESERVE_CHARACTERS = 4_096;
+
+function contextUtilizationPercent(
+  contextWindowTokens: number,
+  promptTokensEstimate: number,
+  maxOutputTokens: number,
+): number {
+  return Number(
+    Math.min(100, ((promptTokensEstimate + maxOutputTokens) / contextWindowTokens) * 100).toFixed(
+      2,
+    ),
+  );
+}
 
 function elapsedSeconds(start: number): number {
   return Number(((performance.now() - start) / 1_000).toFixed(3));
@@ -196,6 +211,11 @@ export class DelegationService {
     let manifest: DelegateResult["context_manifest"] = [];
     let warnings: string[] = [];
     let inputCharacters = 0;
+    let contextWindowTokens: number | null = null;
+    let promptTokensEstimate = 0;
+    let promptTokensActual: number | null = null;
+    let completionTokensActual: number | null = null;
+    let contextUtilizationPercentValue: number | null = null;
     let queueSeconds = 0;
     let availabilityOverride: DelegateResult["availability"] | null = null;
     let prompt: string;
@@ -223,6 +243,11 @@ export class DelegationService {
         elapsed_seconds: elapsedSeconds(start),
         queue_seconds: queueSeconds,
         input_characters: inputCharacters,
+        context_window_tokens: contextWindowTokens,
+        prompt_tokens_estimate: promptTokensEstimate,
+        prompt_tokens_actual: promptTokensActual,
+        completion_tokens_actual: completionTokensActual,
+        context_utilization_percent: contextUtilizationPercentValue,
         truncated: manifest.some((entry) => entry.truncated || entry.omitted),
         warnings,
         error,
@@ -275,13 +300,65 @@ export class DelegationService {
       if (!("backendStatus" in selected)) return failure(selected);
       selection = selected;
       warnings = [...selected.warnings];
+      contextWindowTokens =
+        this.config.backends[selection.backendStatus.backend].context_window_tokens;
+      const safetyMarginTokens = Math.max(1_024, Math.ceil(contextWindowTokens * 0.1));
+      const maximumPromptTokens =
+        contextWindowTokens - input.max_output_tokens - safetyMarginTokens;
+      if (maximumPromptTokens <= 0) {
+        return failure(
+          stableError(
+            "INPUT_LIMIT_EXCEEDED",
+            "The requested output leaves no safe room for a prompt in the configured context window.",
+            {
+              backend: selection.backendStatus.backend,
+              retryable: false,
+              details: {
+                context_window_tokens: contextWindowTokens,
+                max_output_tokens: input.max_output_tokens,
+                safety_margin_tokens: safetyMarginTokens,
+              },
+            },
+          ),
+        );
+      }
+      const emptyPromptTokens = estimateTokens(DELEGATION_SYSTEM_PROMPT + emptyPrompt);
+      if (emptyPromptTokens > maximumPromptTokens) {
+        return failure(
+          stableError(
+            "INPUT_LIMIT_EXCEEDED",
+            "The task and prompt envelope exceed the configured context-window budget.",
+            {
+              backend: selection.backendStatus.backend,
+              retryable: false,
+              details: {
+                context_window_tokens: contextWindowTokens,
+                prompt_tokens_estimate: emptyPromptTokens,
+                max_output_tokens: input.max_output_tokens,
+              },
+            },
+          ),
+        );
+      }
+      const contextTokenBudget = Math.max(
+        0,
+        maximumPromptTokens -
+          emptyPromptTokens -
+          estimateTokens(" ".repeat(CONTEXT_MANIFEST_RESERVE_CHARACTERS)),
+      );
 
       const context = await collectContext({
         workspace: this.workspace,
         cwd: input.cwd,
         paths: input.paths,
         includeDiff: input.include_diff,
-        maximumCharacters: Math.max(0, input.max_input_chars - emptyInputCharacters - 4_096),
+        maximumCharacters: Math.min(
+          Math.max(
+            0,
+            input.max_input_chars - emptyInputCharacters - CONTEXT_MANIFEST_RESERVE_CHARACTERS,
+          ),
+          contextTokenBudget * 2,
+        ),
         ...(options.signal === undefined ? {} : { signal: options.signal }),
       });
       manifest = context.manifest;
@@ -294,12 +371,26 @@ export class DelegationService {
         sections: context.sections,
       });
       inputCharacters = DELEGATION_SYSTEM_PROMPT.length + prompt.length;
-      if (inputCharacters > input.max_input_chars) {
+      promptTokensEstimate = estimateTokens(DELEGATION_SYSTEM_PROMPT + prompt);
+      contextUtilizationPercentValue = contextUtilizationPercent(
+        contextWindowTokens,
+        promptTokensEstimate,
+        input.max_output_tokens,
+      );
+      if (inputCharacters > input.max_input_chars || promptTokensEstimate > maximumPromptTokens) {
         return failure(
           stableError(
             "INPUT_LIMIT_EXCEEDED",
-            "The task, context manifest, and prompt exceed max_input_chars.",
-            { backend: selection.backendStatus.backend, retryable: false },
+            "The task, context manifest, and prompt exceed the configured input or context-window budget.",
+            {
+              backend: selection.backendStatus.backend,
+              retryable: false,
+              details: {
+                context_window_tokens: contextWindowTokens,
+                prompt_tokens_estimate: promptTokensEstimate,
+                max_output_tokens: input.max_output_tokens,
+              },
+            },
           ),
         );
       }
@@ -315,9 +406,9 @@ export class DelegationService {
       });
       queueSeconds = acquired.queueSeconds;
       const stopHeartbeat = this.statusService.coordinator.startHeartbeat(acquired.lease.lease_id);
-      let answer: string;
+      let completion: Awaited<ReturnType<CompletionAdapter["complete"]>>;
       try {
-        answer = await this.completion.complete({
+        completion = await this.completion.complete({
           backend: selection.backendStatus.backend,
           definition: this.config.backends[selection.backendStatus.backend],
           model: selection.model.id,
@@ -341,6 +432,8 @@ export class DelegationService {
       }
       stopHeartbeat();
       await this.statusService.coordinator.release(acquired.lease.lease_id, false);
+      promptTokensActual = completion.usage.promptTokens;
+      completionTokensActual = completion.usage.completionTokens;
       const result = DelegateResultSchema.parse({
         ok: true,
         request_id: requestId,
@@ -350,11 +443,16 @@ export class DelegationService {
         requested_quality: input.quality,
         actual_quality: selection.quality,
         availability: "ready",
-        answer,
+        answer: completion.answer,
         context_manifest: manifest,
         elapsed_seconds: elapsedSeconds(start),
         queue_seconds: queueSeconds,
         input_characters: inputCharacters,
+        context_window_tokens: contextWindowTokens,
+        prompt_tokens_estimate: promptTokensEstimate,
+        prompt_tokens_actual: promptTokensActual,
+        completion_tokens_actual: completionTokensActual,
+        context_utilization_percent: contextUtilizationPercentValue,
         truncated: context.truncated,
         warnings,
         error: null,
@@ -383,6 +481,10 @@ export class DelegationService {
       durationMs: performance.now() - start,
       inputCharacters: result.input_characters,
       outputCharacters: result.answer?.length ?? 0,
+      promptTokensEstimate: result.prompt_tokens_estimate,
+      promptTokensActual: result.prompt_tokens_actual,
+      completionTokensActual: result.completion_tokens_actual,
+      contextUtilizationPercent: result.context_utilization_percent,
       queueMs: result.queue_seconds * 1_000,
       outcome: result.ok ? "success" : "failure",
       errorCode: result.error?.code ?? null,

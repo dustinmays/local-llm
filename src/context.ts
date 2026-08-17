@@ -14,6 +14,18 @@ const MAX_FILE_CHARACTERS = 60_000;
 const MAX_DIFF_BYTES = 2_097_152;
 const MAX_CONTEXT_ITEMS = 2_000;
 
+/**
+ * A deliberately conservative estimate for source-heavy prompts. The MCP does
+ * not have a tokenizer for every configured backend, so this is a budget guard,
+ * not a claim of exact tokenizer usage. Upstream usage is reported separately
+ * when the backend provides it.
+ */
+export const CONSERVATIVE_CHARACTERS_PER_TOKEN = 2;
+
+export function estimateTokens(value: string): number {
+  return Math.ceil(Buffer.byteLength(value, "utf8") / CONSERVATIVE_CHARACTERS_PER_TOKEN);
+}
+
 const excludedDirectories = new Set([
   ".git",
   ".venv",
