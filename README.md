@@ -13,6 +13,166 @@ for configurable, tensor-sharded models up to a 122B mixture-of-experts profile.
 
 ---
 
+## Read-only status, diagnostics, and delegation
+
+The root `local-mlx-delegate` TypeScript package provides a direct CLI and an
+MCP stdio server that inspect the existing controller, worker tunnel, and
+cluster, and can send bounded advisory tasks to an already-loaded model.
+Status only sends `GET /health` and `GET /v1/models`; delegation additionally
+sends `POST /v1/chat/completions`. Neither path starts, stops, loads, unloads,
+swaps, or otherwise changes a model.
+
+Install the exact Node 24 and pnpm toolchain, then build:
+
+```bash
+mise install
+mise run delegate:install
+mise run delegate:build
+```
+
+Use the human-readable CLI output, or request one stable JSON document:
+
+```bash
+mise run delegate:status
+mise run delegate:doctor
+./dist/cli.js status --backend controller
+./dist/cli.js status --json
+./dist/cli.js doctor --workspace-root "$PWD" --json
+./dist/cli.js delegate --task "review the selected file" --cwd "$PWD" \
+  --path src/example.ts --quality fast
+./dist/cli.js delegate --task "review my tracked changes" --cwd "$PWD" \
+  --include-diff --json
+./dist/cli.js delegate --task "bounded second opinion" --cwd "$PWD" \
+  --busy-behavior wait --max-wait-seconds 30
+./dist/cli.js leases --json
+```
+
+Administrative cooldown clearing is deliberately separate from MCP and
+requires all of an exact lease ID, an explicit confirmation flag, and a passed
+backend health/model probe:
+
+```bash
+./dist/cli.js leases clear --lease-id UUID --confirm --json
+```
+
+MCP tools cannot clear leases.
+
+Run the MCP server with stdout reserved for protocol traffic. All diagnostic
+logs are newline-delimited JSON on stderr.
+
+```bash
+./dist/cli.js serve --workspace-root "$PWD"
+```
+
+The built-in endpoints and resource groups are:
+
+| Backend | API base URL | Resource groups | Startup hint |
+|---|---|---|---|
+| controller | `http://127.0.0.1:1234/v1` | `controller` | `llm-serve` or `llm-serve-hq` |
+| worker | `http://127.0.0.1:1235/v1` | `worker` | Start worker LM Studio and the localhost port-1235 SSH tunnel |
+| cluster | `http://127.0.0.1:8080/v1` | `controller`, `worker` | `mise run cluster:start-fast` or `mise run cluster:start-overnight` |
+
+Configuration precedence is built-in defaults, an optional JSON file, explicit
+environment variables, then invocation flags. Select the JSON file with
+`--config PATH` or `LOCAL_MLX_DELEGATE_CONFIG`; the flag wins. A configuration
+file is strict, uses `"schema_version": 1`, and may partially override fields:
+
+```json
+{
+  "schema_version": 1,
+  "workspace_root": null,
+  "log_level": "info",
+  "connect_timeout_ms": 1000,
+  "health_timeout_ms": 2000,
+  "generation_timeout_ms": 120000,
+  "coordination": {
+    "mutex_timeout_ms": 5000,
+    "mutex_stale_ms": 10000,
+    "heartbeat_interval_ms": 2000,
+    "lease_ttl_ms": 10000,
+    "cooldown_ms": 30000,
+    "queue_capacity": 32,
+    "queue_poll_interval_ms": 50,
+    "rate_limit_requests": 60,
+    "rate_limit_window_ms": 60000
+  },
+  "backends": {
+    "controller": {
+      "enabled": true,
+      "url": "http://127.0.0.1:1234/v1",
+      "model_quality": {
+        "fast": ["qwen3-coder-30b-a3b-instruct@4bit"],
+        "deep": ["qwen3-coder-30b-a3b-instruct@8bit"]
+      }
+    }
+  }
+}
+```
+
+Environment overrides are
+`LOCAL_MLX_DELEGATE_WORKSPACE_ROOT`,
+`LOCAL_MLX_DELEGATE_LOG_LEVEL`,
+`LOCAL_MLX_DELEGATE_CONNECT_TIMEOUT_MS`,
+`LOCAL_MLX_DELEGATE_HEALTH_TIMEOUT_MS`,
+`LOCAL_MLX_DELEGATE_GENERATION_TIMEOUT_MS`,
+`LOCAL_MLX_DELEGATE_STATE_DIRECTORY`,
+`LOCAL_MLX_DELEGATE_MUTEX_TIMEOUT_MS`,
+`LOCAL_MLX_DELEGATE_MUTEX_STALE_MS`,
+`LOCAL_MLX_DELEGATE_HEARTBEAT_INTERVAL_MS`,
+`LOCAL_MLX_DELEGATE_LEASE_TTL_MS`,
+`LOCAL_MLX_DELEGATE_COOLDOWN_MS`,
+`LOCAL_MLX_DELEGATE_QUEUE_CAPACITY`,
+`LOCAL_MLX_DELEGATE_QUEUE_POLL_INTERVAL_MS`,
+`LOCAL_MLX_DELEGATE_RATE_LIMIT_REQUESTS`,
+`LOCAL_MLX_DELEGATE_RATE_LIMIT_WINDOW_MS`, and
+`LOCAL_MLX_DELEGATE_{CONTROLLER,WORKER,CLUSTER}_{URL,ENABLED}`. Boolean values
+are `true`, `false`, `1`, or `0`. Backend URLs must be HTTP(S) loopback URLs
+without credentials, query strings, or fragments. Model quality is classified
+only by exact configured IDs; it is never guessed from a model name.
+
+Delegation resolves one canonical workspace boundary before serving requests.
+It reads only explicit `--path` selections and, when requested, a bounded
+tracked-file diff from `HEAD`. Symlink escapes and sensitive paths are
+rejected; binary, generated, dependency, model-weight, and oversized context
+is omitted or truncated with a manifest reason. Untracked files enter context
+only when explicitly selected. Repository text is marked as untrusted in the
+prompt, and local-model output remains advisory.
+
+Generation capacity is coordinated across independent CLI and MCP processes
+through a strict, versioned registry in the user's local application-state
+directory. Controller and cluster work contend for `controller`; worker and
+cluster work contend for `worker`; cluster allocation reserves both in one
+atomic transaction. The default is fail-fast busy handling. A bounded
+`busy_behavior=wait` request receives a FIFO ticket relative to requests that
+overlap its physical resources. Generation starts share one sliding-window
+rate limit across processes.
+
+Active leases heartbeat while a request runs. Known completion outcomes
+release immediately; an ambiguous timeout or cancellation enters a 30-second
+default cooldown so another heavy request cannot overlap work that may still
+be running upstream. `status`, `doctor`, and `leases` report resource state,
+queue depth, lease age, cooldown time, and degraded registry state without
+including prompts or paths. The state directory is environment-overridable but
+cannot be redirected by a repository JSON configuration file.
+
+Decisions for unspecified defaults and open later-chunk questions are recorded
+in [the delegation decision log](docs/LOCAL-LLM-DELEGATION-DECISIONS.md).
+
+Exit codes are `0` for successful checks or delegation, `1` for a valid
+diagnostic/delegation failure, `2` for usage/configuration errors, and
+`70` for unexpected software errors. Run the complete fake-endpoint checks
+without a live model:
+
+```bash
+mise run delegate:check
+mise run delegate:test-protocol
+```
+
+Live checks and consultations are optional and never change model lifecycle
+state or repository files.
+
+---
+
 ## How the single-Mac path fits together
 
 Read this first — the rest of the doc makes more sense once the layers are clear.

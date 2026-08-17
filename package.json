@@ -1,0 +1,46 @@
+{
+  "name": "local-mlx-delegate",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.22.0",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "bin": {
+    "local-mlx-delegate": "dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json && chmod +x dist/cli.js",
+    "format": "prettier --write src tests eslint.config.js",
+    "format:check": "prettier --check src tests eslint.config.js",
+    "lint": "eslint src tests",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test:typecheck": "tsc --noEmit -p tsconfig.test.json",
+    "test:offline": "vitest run --exclude tests/mcp-protocol.test.ts",
+    "test:protocol": "pnpm build && vitest run tests/mcp-protocol.test.ts",
+    "test": "pnpm build && vitest run",
+    "status": "node dist/cli.js status",
+    "doctor": "node dist/cli.js doctor",
+    "delegate": "node dist/cli.js delegate",
+    "leases": "node dist/cli.js leases",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:typecheck && pnpm test:offline && pnpm build"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "zod": "4.4.3"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@modelcontextprotocol/client": "2.0.0",
+    "@types/node": "24.13.3",
+    "eslint": "10.8.1",
+    "prettier": "3.9.6",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.67.0",
+    "vitest": "4.1.10"
+  }
+}
