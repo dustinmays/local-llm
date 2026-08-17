@@ -203,6 +203,27 @@ Status values are `accepted`, `provisional`, `superseded`, and `open`.
   when JIT loading is enabled. Treating that catalog as resident state made a
   single loaded LLM appear ambiguous and could select an unloaded model.
 
+### D017 — Native MCP hosts own the stdio server lifecycle
+
+- Status: accepted
+- Decided: 2026-08-17, macOS deployment research follow-up
+- Decision: Keep `local-mlx-delegate` as a per-client stdio subprocess. Codex,
+  Claude, Copilot, or VS Code starts and stops its own process; do not install
+  the current server as a `launchd` job or shared daemon. Use each host's MCP
+  controls for routine lifecycle management and the MCP Inspector for protocol
+  debugging.
+- Network boundary: the subprocess must run in the same native macOS network
+  context as LM Studio for `127.0.0.1` to identify the Mac host. A sandbox,
+  container, remote workspace, or remote executor may have a different
+  loopback interface and is not a valid live-test context unless explicitly
+  bridged and allowed by the configuration contract.
+- Rationale: stdio clients own the child process and its protocol pipes. A
+  separately daemonized process cannot share those pipes, while a native child
+  can make the required read-only loopback requests without introducing an
+  inbound HTTP service. A shared `launchd` service would require a future
+  Streamable HTTP design and its accompanying authentication and exposure
+  decisions.
+
 ## Provisional defaults
 
 These values are safe starting points selected because the plan did not assign
@@ -281,3 +302,21 @@ deadline.
   and harness compilation are covered by the ordinary check. Live endpoints
   were all unavailable on 2026-08-17, so no lifecycle action was taken and the
   release gate remains incomplete.
+
+### O007 — Harden host launches against minimal GUI environments
+
+- Status: open
+- Target: compatibility follow-up
+- Question: Should generated host entries invoke the absolute Node 24
+  executable with the absolute CLI path as its first argument, instead of
+  relying on `#!/usr/bin/env node` and each host application's inherited
+  `PATH`?
+- Current evidence: normal inherited host environments successfully ran MCP
+  delegation, while an intentionally stripped environment reached the server
+  but produced `UPSTREAM_PROTOCOL_ERROR`. The exact missing setting has not
+  been isolated, so the shebang/PATH concern is a portability risk rather than
+  a confirmed explanation for that error.
+- Evidence needed: spawned-protocol tests under the documented minimum safe
+  environment, containing no secrets or raw environment logging; doctor checks
+  for executable resolution and a writable state directory; and native-host
+  status/delegation smoke tests outside agent-shell network sandboxes.
