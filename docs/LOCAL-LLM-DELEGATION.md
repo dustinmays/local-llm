@@ -5,6 +5,9 @@ MCP consultation tool for local agent clients backed by cloud models.
 
 Implementation choices and still-open release questions are tracked in
 [`LOCAL-LLM-DELEGATION-DECISIONS.md`](LOCAL-LLM-DELEGATION-DECISIONS.md).
+Build, host configuration, native-loopback requirements, process management,
+and troubleshooting are maintained in
+[`LOCAL-LLM-DELEGATION-OPERATIONS.md`](LOCAL-LLM-DELEGATION-OPERATIONS.md).
 
 ## Goal
 
@@ -132,10 +135,15 @@ query strings, or fragments.
 
 Issue 11 registers only `local_llm_status`; `local_llm_delegate` begins in
 issue 12. Each configured backend result includes its enabled and health
-state, availability, complete sanitized model list, safe endpoint, latency,
-resource groups, warnings, startup hint, and nullable stable error. The
-top-level model remains null when `/v1/models` returns more than one model, and
-quality remains `unknown` until issue 12 adds explicit classification.
+state, availability, complete sanitized visible-model catalog, loaded
+generative-model list, safe endpoint, latency, resource groups, warnings,
+startup hint, and nullable stable error. Generic OpenAI-compatible discovery
+treats `/v1/models` as loaded. LM Studio discovery additionally reads
+`/api/v1/models` and intersects its loaded LLM instances with the visible
+catalog, excluding unloaded and embedding entries exposed by JIT loading. The
+top-level model remains null when more than one loaded generative model is
+present, and quality remains `unknown` until issue 12 adds explicit
+classification.
 
 The direct `status` and `doctor` commands are human-readable by default and
 emit one schema-validated document with `--json`. Their exit codes are 0 for a
@@ -158,7 +166,7 @@ deterministic manifest.
 
 Prompt rendering labels repository text as untrusted and carries the task,
 requested backend/quality, manifest, and delimited contents. Generation uses
-the exact unambiguous model ID returned by `/v1/models`, propagates the caller's
+the exact unambiguous loaded generative model ID, propagates the caller's
 output-token limit, has a 120-second default deadline, and never retries an
 ambiguous generation. Exact configured model-ID lists classify `fast` and
 `deep`; unknown or ambiguous selections fail safely when a requested quality
@@ -193,9 +201,9 @@ non-numeric are maintained in
 ```text
 Codex / Claude Code / Copilot / another local MCP host
                          |
-                    MCP over stdio
+             client-owned MCP over stdio
                          |
-             local-mlx-delegate server
+       one local-mlx-delegate child per host session
        schemas, workspace guard, routing, limits
                          |
           +--------------+--------------+
@@ -224,6 +232,19 @@ Separate the layers:
 5. **Optional agent guidance** explains when and how to delegate, but does not
    contain implementation or mandatory safety controls.
 
+The stdio host owns the child process, stdin, stdout, and shutdown. Independent
+hosts therefore create independent children, which is expected; shared
+coordination state arbitrates their backend capacity. Do not daemonize the
+stdio server with `launchd` or another supervisor because a separately owned
+process cannot supply the protocol pipes for a client session. A persistent
+shared server would require a later authenticated Streamable HTTP transport.
+
+The child opens no inbound network listener. Its backend HTTP requests must run
+in the same native macOS network context as the configured loopback endpoint.
+A container, remote workspace, remote executor, or restricted sandbox has a
+different `127.0.0.1` unless specifically bridged; version 1 deliberately does
+not broaden its loopback-only URL contract to support those environments.
+
 The server's MCP `instructions`, tool descriptions, schemas, and deterministic
 checks must contain everything required for safe operation. Put the most
 important cross-tool guidance first so clients with instruction limits still
@@ -234,13 +255,13 @@ receive it.
 Use a switchable hybrid design rather than committing to only sharded or only
 independent operation.
 
-| Mode | Hardware | Preferred use |
-|---|---|---|
-| Single fast | One Mac, 30B 4-bit | Summaries, extraction, bounded diff review, test ideas |
-| Single HQ | One Mac, 30B 8-bit | Careful review when the 30B model is sufficient |
-| Cluster deep | Both Macs, 122B 4-bit | Ambiguous reasoning, architecture, broad review |
-| Independent workers | One model per Mac | Two genuinely independent tasks in parallel |
-| Cluster fast | Both Macs, 35B 4-bit | Diagnostics and measured compatibility cases |
+| Mode                | Hardware              | Preferred use                                          |
+| ------------------- | --------------------- | ------------------------------------------------------ |
+| Single fast         | One Mac, 30B 4-bit    | Summaries, extraction, bounded diff review, test ideas |
+| Single HQ           | One Mac, 30B 8-bit    | Careful review when the 30B model is sufficient        |
+| Cluster deep        | Both Macs, 122B 4-bit | Ambiguous reasoning, architecture, broad review        |
+| Independent workers | One model per Mac     | Two genuinely independent tasks in parallel            |
+| Cluster fast        | Both Macs, 35B 4-bit  | Diagnostics and measured compatibility cases           |
 
 The governing rule is:
 
@@ -284,9 +305,11 @@ warnings[]
 error
 ```
 
-The tool reports configured endpoints, endpoint health, loaded model IDs from
-`/v1/models`, current topology, and actionable startup hints. It must not
-change lifecycle state.
+The tool reports configured endpoints, endpoint health, the sanitized visible
+catalog from `/v1/models`, loaded generative candidates established by the
+configured discovery mode, current topology, and actionable startup hints. It
+must not change lifecycle state. LM Studio discovery uses read-only
+`/api/v1/models` metadata to exclude JIT-visible unloaded and embedding models.
 
 Annotations:
 
@@ -598,6 +621,15 @@ absolute executable path, fixing the canonical workspace root explicitly:
 /absolute/repository/dist/cli.js serve --workspace-root /absolute/repository
 ```
 
+The current compiled entrypoint uses `#!/usr/bin/env node`; the absolute CLI
+path therefore still depends on the host application's inherited `PATH`
+resolving the pinned Node 24 runtime. Native inherited environments have passed
+live MCP delegation, while an intentionally stripped environment produced an
+upstream protocol failure whose exact cause remains unisolated. Track absolute
+Node invocation, a tested minimum explicit environment, and safe doctor checks
+as compatibility hardening. Do not document raw environment values or assume
+that the shebang explains an upstream error without a focused reproduction.
+
 Use the server name `local-mlx-delegate`. The shared Claude/Copilot entry uses
 `type: "stdio"`, which both native schemas accept; VS Code uses the same entry
 under its `servers` root. Accept JSONC input and preserve unrelated servers and
@@ -617,11 +649,22 @@ workspace trust/approval controls.
 Do not claim support based only on generating syntactically valid config; the
 behavioral tests must exercise real host calls.
 
+Each host is also the process manager for its own stdio child. VS Code's **MCP:
+List Servers** command provides start, stop, restart, enable/disable, and output
+inspection. Codex and Claude expose equivalent discovery and status through
+their native MCP commands and `/mcp` interfaces. For protocol debugging, use
+the official MCP Inspector and let it launch the compiled server; do not
+pre-launch or supervise a second child.
+
 Locally running cloud-model clients can use stdio because the client process
-runs on the Mac. A remotely hosted coding agent cannot reach the Mac's
-loopback server through this design. Treat remote access as a separate future
-delivery mode using authenticated Streamable HTTP, TLS, origin/host
-validation, explicit network policy, and audit logging.
+runs on the Mac. Live checks must likewise run outside agent-shell sandboxes
+whose network context cannot reach the host's loopback. A remotely hosted
+coding agent, VS Code remote workspace, or container cannot reach the Mac's
+loopback backend through this design merely by spawning the stdio server there.
+Treat remote access as a separate future delivery mode using authenticated
+Streamable HTTP, TLS, origin/host validation, explicit network policy, and
+audit logging. The normative operator procedure is maintained in
+[`LOCAL-LLM-DELEGATION-OPERATIONS.md`](LOCAL-LLM-DELEGATION-OPERATIONS.md).
 
 ## Optional agent guidance
 
@@ -790,6 +833,8 @@ backend.
 
 - [Official MCP TypeScript SDK v2](https://ts.sdk.modelcontextprotocol.io/v2/)
 - [MCP TypeScript SDK v2 testing](https://ts.sdk.modelcontextprotocol.io/v2/testing.html)
+- [MCP stdio transport lifecycle](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports)
+- [Official MCP Inspector](https://github.com/modelcontextprotocol/inspector)
 - [MCP tool specification](https://modelcontextprotocol.io/specification/2026-07-28/server/tools)
 - [Codex MCP configuration](https://learn.chatgpt.com/docs/extend/mcp?surface=cli)
 - [Codex skill authoring](https://learn.chatgpt.com/docs/build-skills)

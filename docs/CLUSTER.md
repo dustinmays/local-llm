@@ -3,10 +3,10 @@
 This guide configures two 48 GB MacBook Pros as one distributed MLX inference
 cluster:
 
-| Rank | Mac | User | Role |
-|---|---|---|---|
-| 0 | M5 Pro, 48 GB | `dustinmays` | Controller, `mlx_lm.server`, T3, OpenCode |
-| 1 | M4 Pro, 48 GB | `dustin` | MLX worker |
+| Rank | Mac           | User         | Role                                      |
+| ---- | ------------- | ------------ | ----------------------------------------- |
+| 0    | M5 Pro, 48 GB | `dustinmays` | Controller, `mlx_lm.server`, T3, OpenCode |
+| 1    | M4 Pro, 48 GB | `dustin`     | MLX worker                                |
 
 The normal request path is:
 
@@ -23,6 +23,14 @@ T3 -> OpenCode -> http://127.0.0.1:8080/v1
 MLX shards a supported model between the machines. It does not expose a general
 96 GB shared-memory device. Both machines must remain connected and awake for
 the lifetime of the server, and both must have the complete model on disk.
+
+When `local-mlx-delegate` is used as an MCP integration, its Codex, Claude,
+Copilot, or VS Code child must run natively on the M5 controller so the cluster
+URL `http://127.0.0.1:8080/v1` refers to rank 0. Do not launch that stdio child
+from a container, Remote SSH workspace, cloud executor, or `launchd`; each MCP
+host owns its own child process and protocol pipes. Build, configure, inspect,
+and troubleshoot it with the
+[delegation operations guide](LOCAL-LLM-DELEGATION-OPERATIONS.md).
 
 ## Design choices
 

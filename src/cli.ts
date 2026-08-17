@@ -279,8 +279,11 @@ function printStatus(status: StatusResult): void {
     const models = backend.models.length
       ? backend.models.map((model) => model.id).join(", ")
       : "none";
+    const loadedModels = backend.loaded_models.length
+      ? backend.loaded_models.map((model) => model.id).join(", ")
+      : "none";
     process.stdout.write(
-      `${backend.backend}: ${backend.enabled ? backend.availability : "disabled"} (${backend.endpoint}); models: ${models}; queue: ${String(backend.queue_depth)}${backend.lease_age_seconds === null ? "" : `; lease age: ${String(backend.lease_age_seconds)}s`}${backend.cooldown_remaining_seconds === null ? "" : `; cooldown: ${String(backend.cooldown_remaining_seconds)}s`}\n`,
+      `${backend.backend}: ${backend.enabled ? backend.availability : "disabled"} (${backend.endpoint}); loaded models: ${loadedModels}; visible models: ${models}; queue: ${String(backend.queue_depth)}${backend.lease_age_seconds === null ? "" : `; lease age: ${String(backend.lease_age_seconds)}s`}${backend.cooldown_remaining_seconds === null ? "" : `; cooldown: ${String(backend.cooldown_remaining_seconds)}s`}\n`,
     );
     if (backend.error) {
       process.stdout.write(
@@ -500,7 +503,7 @@ export async function runCli(arguments_: string[]): Promise<number> {
           const backendHealth = health.configured_backends.find(
             (backend) => backend.backend === lease.backend,
           );
-          if (backendHealth?.health !== true || backendHealth.models.length === 0) {
+          if (backendHealth?.health !== true || backendHealth.loaded_models.length === 0) {
             error = stableError(
               "BACKEND_UNAVAILABLE",
               "The lease was not cleared because its backend health check did not pass.",

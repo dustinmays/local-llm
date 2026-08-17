@@ -45,7 +45,7 @@ function selectModel(
   input: DelegateInput,
 ): Selection | StableError {
   const routable = backends.filter(
-    (backend) => backend.enabled && backend.health && backend.models.length > 0,
+    (backend) => backend.enabled && backend.health && backend.loaded_models.length > 0,
   );
   const automaticOrder =
     input.quality === "deep"
@@ -71,7 +71,7 @@ function selectModel(
     explicit &&
     (requestedBackend?.enabled !== true ||
       !requestedBackend.health ||
-      requestedBackend.models.length === 0)
+      requestedBackend.loaded_models.length === 0)
   ) {
     return (
       requestedBackend?.error ??
@@ -83,8 +83,8 @@ function selectModel(
   }
 
   for (const backend of candidates) {
-    if (!backend.health || backend.models.length === 0) continue;
-    const classified = backend.models.map((model) => ({
+    if (!backend.health || backend.loaded_models.length === 0) continue;
+    const classified = backend.loaded_models.map((model) => ({
       model,
       quality: classifyModel(config.backends[backend.backend], model.id),
     }));
@@ -123,9 +123,9 @@ function selectModel(
     if (
       input.backend === "auto" &&
       onlyCluster?.backend === "cluster" &&
-      onlyCluster.models.length === 1
+      onlyCluster.loaded_models.length === 1
     ) {
-      const model = onlyCluster.models.at(0);
+      const model = onlyCluster.loaded_models.at(0);
       if (model !== undefined) {
         return {
           backendStatus: onlyCluster,
@@ -139,7 +139,9 @@ function selectModel(
     }
     const available = candidates
       .flatMap((backend) =>
-        backend.models.map((model) => classifyModel(config.backends[backend.backend], model.id)),
+        backend.loaded_models.map((model) =>
+          classifyModel(config.backends[backend.backend], model.id),
+        ),
       )
       .join(",")
       .slice(0, 1_024);

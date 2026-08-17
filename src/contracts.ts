@@ -102,7 +102,10 @@ export const ConfiguredBackendStatusSchema = z
     enabled: z.boolean(),
     health: z.boolean(),
     availability: AvailabilitySchema,
+    /** Models visible through the backend's OpenAI-compatible catalog. */
     models: z.array(ModelMetadataSchema),
+    /** Loaded generative models that are safe delegation candidates. */
+    loaded_models: z.array(ModelMetadataSchema),
     endpoint: z.url(),
     latency_ms: z.number().int().nonnegative().nullable(),
     resource_groups: z.array(z.string().min(1).max(128)),

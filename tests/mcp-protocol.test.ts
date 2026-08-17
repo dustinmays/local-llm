@@ -35,12 +35,14 @@ afterEach(async () => {
 });
 
 function ready(request: ProbeRequest): ConfiguredBackendStatus {
+  const models = [{ id: `${request.backend}-model`, object: null, created: null, owned_by: null }];
   return {
     backend: request.backend,
     enabled: true,
     health: true,
     availability: "ready",
-    models: [{ id: `${request.backend}-model`, object: null, created: null, owned_by: null }],
+    models,
+    loaded_models: models,
     endpoint: request.definition.url,
     latency_ms: 1,
     resource_groups: [...request.definition.resource_groups],
@@ -64,6 +66,7 @@ function safeEnvironment(overrides: Record<string, string>): Record<string, stri
     PATH: process.env.PATH ?? "",
     HOME: process.env.HOME ?? "",
     LOCAL_MLX_DELEGATE_STATE_DIRECTORY: stateDirectory,
+    LOCAL_MLX_DELEGATE_CONTROLLER_MODEL_DISCOVERY: "openai",
     ...overrides,
   };
 }
@@ -206,6 +209,7 @@ describe("MCP SDK integration", () => {
           health: false,
           availability: "offline",
           models: [],
+          loaded_models: [],
           error: {
             code: "BACKEND_UNAVAILABLE",
             message: "The backend is unavailable.",

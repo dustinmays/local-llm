@@ -194,6 +194,9 @@ describe("configuration", () => {
     expect(BACKEND_ORDER).toEqual(["controller", "worker", "cluster"]);
     expect(config.connect_timeout_ms).toBe(1_000);
     expect(config.health_timeout_ms).toBe(2_000);
+    expect(config.backends.controller.model_discovery).toBe("lmstudio");
+    expect(config.backends.worker.model_discovery).toBe("lmstudio");
+    expect(config.backends.cluster.model_discovery).toBe("openai");
     expect(config.coordination).toMatchObject({
       heartbeat_interval_ms: 2_000,
       lease_ttl_ms: 10_000,
@@ -214,6 +217,7 @@ describe("configuration", () => {
         controller: {
           enabled: false,
           url: "http://localhost:4321/v1/",
+          model_discovery: "openai",
           model_quality: { deep: ["custom-deep"] },
         },
       },
@@ -227,6 +231,7 @@ describe("configuration", () => {
         LOCAL_MLX_DELEGATE_GENERATION_TIMEOUT_MS: "90000",
         LOCAL_MLX_DELEGATE_CONTROLLER_ENABLED: "true",
         LOCAL_MLX_DELEGATE_CONTROLLER_URL: "http://127.0.0.1:9876/v1",
+        LOCAL_MLX_DELEGATE_CONTROLLER_MODEL_DISCOVERY: "lmstudio",
         LOCAL_MLX_DELEGATE_STATE_DIRECTORY: "state",
         LOCAL_MLX_DELEGATE_QUEUE_CAPACITY: "12",
         LOCAL_MLX_DELEGATE_RATE_LIMIT_REQUESTS: "15",
@@ -237,6 +242,7 @@ describe("configuration", () => {
     expect(config.generation_timeout_ms).toBe(90_000);
     expect(config.backends.controller.enabled).toBe(true);
     expect(config.backends.controller.url).toBe("http://127.0.0.1:9876/v1");
+    expect(config.backends.controller.model_discovery).toBe("lmstudio");
     expect(config.backends.controller.resource_groups).toEqual(["controller"]);
     expect(config.backends.controller.model_quality.deep).toEqual(["custom-deep"]);
     expect(config.backends.controller.model_quality.fast).toEqual(
@@ -289,6 +295,7 @@ describe("configuration", () => {
       backends: { controller: { model_quality: { fast: ["same"], deep: ["same"] } } },
     },
     { schema_version: 1, backends: { controller: { enabled: "yes" } } },
+    { schema_version: 1, backends: { controller: { model_discovery: "automatic" } } },
     {
       schema_version: 1,
       backends: { cluster: { resource_groups: ["controller", "controller"] } },
@@ -306,6 +313,9 @@ describe("configuration", () => {
     ).rejects.toBeInstanceOf(ConfigurationError);
     await expect(
       loadConfig({ env: { LOCAL_MLX_DELEGATE_CONNECT_TIMEOUT_MS: "1.5" } }),
+    ).rejects.toBeInstanceOf(ConfigurationError);
+    await expect(
+      loadConfig({ env: { LOCAL_MLX_DELEGATE_CONTROLLER_MODEL_DISCOVERY: "automatic" } }),
     ).rejects.toBeInstanceOf(ConfigurationError);
   });
 });

@@ -21,6 +21,18 @@ const ModelsResponseSchema = z.object({
   data: z.array(UpstreamModelSchema).max(10_000),
 });
 
+const LmStudioModelsResponseSchema = z.object({
+  models: z
+    .array(
+      z.object({
+        type: z.enum(["llm", "embedding"]),
+        key: z.string().min(1).max(1024),
+        loaded_instances: z.array(z.object({ id: z.string().min(1).max(1024) })).max(10_000),
+      }),
+    )
+    .max(10_000),
+});
+
 const CompletionResponseSchema = z.object({
   choices: z
     .array(
@@ -161,13 +173,19 @@ export function boundedGet(
   });
 }
 
-function endpoints(apiBase: string): { health: URL; models: URL; completions: URL } {
+function endpoints(apiBase: string): {
+  health: URL;
+  models: URL;
+  lmStudioModels: URL;
+  completions: URL;
+} {
   const base = new URL(apiBase);
   const health = new URL("/health", base.origin);
   const path = base.pathname.replace(/\/+$/, "");
   const models = new URL(`${path}/models`, base.origin);
+  const lmStudioModels = new URL("/api/v1/models", base.origin);
   const completions = new URL(`${path}/chat/completions`, base.origin);
-  return { health, models, completions };
+  return { health, models, lmStudioModels, completions };
 }
 
 function mapRequestFailure(failure: unknown): StableErrorCode {
@@ -195,6 +213,22 @@ function publicModels(value: Buffer): ModelMetadata[] | null {
   }));
 }
 
+function lmStudioLoadedModelIds(value: Buffer): Set<string> | null {
+  let json: unknown;
+  try {
+    json = JSON.parse(value.toString("utf8")) as unknown;
+  } catch {
+    return null;
+  }
+  const parsed = LmStudioModelsResponseSchema.safeParse(json);
+  if (!parsed.success) return null;
+  return new Set(
+    parsed.data.models
+      .filter((model) => model.type === "llm")
+      .flatMap((model) => model.loaded_instances.map((instance) => instance.id)),
+  );
+}
+
 function result(
   request: ProbeRequest,
   start: number,
@@ -206,6 +240,7 @@ function result(
     health: false,
     availability: "offline",
     models: [],
+    loaded_models: [],
     endpoint: request.definition.url,
     latency_ms: Math.max(0, Math.round(performance.now() - start)),
     resource_groups: [...request.definition.resource_groups],
@@ -292,9 +327,79 @@ export class OpenAiCompatibleProbe implements BackendProbe {
         }),
       });
     }
-    if (models.length === 0) {
+    let loadedModels = models;
+    const warnings: string[] = [];
+    if (request.definition.model_discovery === "lmstudio") {
+      let nativeResponse: BoundedResponse;
+      try {
+        nativeResponse = await boundedGet(
+          target.lmStudioModels,
+          request.connectTimeoutMs,
+          request.responseTimeoutMs,
+        );
+      } catch (error) {
+        const code = mapRequestFailure(error);
+        return result(request, start, {
+          health: true,
+          models,
+          error: stableError(code, undefined, {
+            backend: request.backend,
+            startupHint: request.definition.startup_hint,
+          }),
+        });
+      }
+      if (nativeResponse.statusCode < 200 || nativeResponse.statusCode >= 300) {
+        return result(request, start, {
+          health: true,
+          models,
+          error: stableError("UPSTREAM_PROTOCOL_ERROR", undefined, {
+            backend: request.backend,
+            startupHint: request.definition.startup_hint,
+            retryable: false,
+            details: { http_status: nativeResponse.statusCode },
+          }),
+        });
+      }
+      const loadedModelIds = lmStudioLoadedModelIds(nativeResponse.body);
+      if (loadedModelIds === null) {
+        return result(request, start, {
+          health: true,
+          models,
+          error: stableError("UPSTREAM_PROTOCOL_ERROR", undefined, {
+            backend: request.backend,
+            startupHint: request.definition.startup_hint,
+            retryable: false,
+          }),
+        });
+      }
+      loadedModels = models.filter((model) => loadedModelIds.has(model.id));
+      if (loadedModelIds.size !== loadedModels.length) {
+        return result(request, start, {
+          health: true,
+          models,
+          error: stableError(
+            "UPSTREAM_PROTOCOL_ERROR",
+            "LM Studio loaded-model metadata did not match its OpenAI-compatible catalog.",
+            {
+              backend: request.backend,
+              startupHint: request.definition.startup_hint,
+              retryable: false,
+            },
+          ),
+        });
+      }
+      const excluded = models.length - loadedModels.length;
+      if (excluded > 0) {
+        warnings.push(
+          `Excluded ${String(excluded)} unloaded or non-generative LM Studio catalog entries.`,
+        );
+      }
+    }
+    if (loadedModels.length === 0) {
       return result(request, start, {
         health: true,
+        models,
+        warnings,
         error: stableError("MODEL_NOT_LOADED", undefined, {
           backend: request.backend,
           startupHint: request.definition.startup_hint,
@@ -306,6 +411,8 @@ export class OpenAiCompatibleProbe implements BackendProbe {
       health: true,
       availability: "ready",
       models,
+      loaded_models: loadedModels,
+      warnings,
     });
   }
 }

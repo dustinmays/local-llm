@@ -31,6 +31,7 @@ afterEach(async () => {
 async function startInference(
   model: string,
   mode: InferenceMode = "success",
+  visibleModels: string[] = [model],
 ): Promise<FakeInference> {
   const requests: { method: string; path: string }[] = [];
   const completionBodies: unknown[] = [];
@@ -42,7 +43,19 @@ async function startInference(
       return;
     }
     if (request.url === "/v1/models") {
-      response.end(JSON.stringify({ data: [{ id: model, object: "model" }] }));
+      response.end(JSON.stringify({ data: visibleModels.map((id) => ({ id, object: "model" })) }));
+      return;
+    }
+    if (request.url === "/api/v1/models") {
+      response.end(
+        JSON.stringify({
+          models: visibleModels.map((id) => ({
+            type: id.includes("embedding") ? "embedding" : "llm",
+            key: id,
+            loaded_instances: id === model ? [{ id }] : [],
+          })),
+        }),
+      );
       return;
     }
     if (request.url === "/v1/chat/completions" && request.method === "POST") {
@@ -104,6 +117,8 @@ function config(root: string, upstream: FakeInference, model: string): DelegateC
   value.workspace_root = root;
   value.coordination.state_directory = join(root, ".delegate-state");
   value.backends.controller.url = upstream.url;
+  value.backends.controller.model_discovery = "openai";
+  value.backends.worker.model_discovery = "openai";
   value.backends.controller.model_quality.fast = [model];
   value.backends.controller.model_quality.deep = [];
   value.backends.worker.enabled = false;
@@ -164,6 +179,38 @@ describe("safe delegation pipeline", () => {
       expect(body).toContain("export const value = 1");
       expect(body).toContain("REQUESTED QUALITY\\nfast");
       expect(body).toContain("REQUESTED BACKEND\\ncontroller");
+    } finally {
+      await upstream.close();
+    }
+  });
+
+  it("delegates only to the loaded LM Studio LLM when JIT exposes other catalog entries", async () => {
+    const model = "loaded-fast-model";
+    const upstream = await startInference(model, "success", [
+      model,
+      "unloaded-deep-model",
+      "embedding-model",
+    ]);
+    const { root } = await fixture();
+    const value = config(root, upstream, model);
+    value.backends.controller.model_discovery = "lmstudio";
+    try {
+      const result = await (
+        await service(value)
+      ).delegate(input(root, { quality: "fast", backend: "controller" }));
+      expect(result).toMatchObject({
+        ok: true,
+        backend: "controller",
+        model: { id: model },
+        actual_quality: "fast",
+      });
+      expect(upstream.requests).toEqual([
+        { method: "GET", path: "/health" },
+        { method: "GET", path: "/v1/models" },
+        { method: "GET", path: "/api/v1/models" },
+        { method: "POST", path: "/v1/chat/completions" },
+      ]);
+      expect(upstream.completionBodies[0]).toMatchObject({ model });
     } finally {
       await upstream.close();
     }
