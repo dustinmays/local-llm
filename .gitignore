@@ -18,3 +18,9 @@ cluster/run/
 models/
 *.safetensors
 *.gguf
+
+# TypeScript package output
+node_modules/
+dist/
+coverage/
+artifacts/delegate/

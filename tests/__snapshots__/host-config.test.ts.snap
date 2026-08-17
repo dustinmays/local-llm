@@ -1,0 +1,8 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`host configuration > renders, applies, and reapplies Codex TOML idempotently 1`] = `
+"[mcp_servers.local-mlx-delegate]
+command = "$ROOT/dist/cli.js"
+args = ["serve", "--workspace-root", "$ROOT"]
+"
+`;

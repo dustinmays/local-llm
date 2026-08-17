@@ -2,6 +2,8 @@ min_version = "2026.7.0"
 
 [tools]
 python = "3.13.14"
+node = "24.19.0"
+pnpm = "11.22.0"
 
 [env]
 _.python.venv = { path = ".venv", create = true }
@@ -121,3 +123,83 @@ for f in cluster/bin/*; do bash -n "$f" || exit 1; done
 for f in cluster/lib/*.sh; do bash -n "$f" || exit 1; done
 echo "All shell scripts pass syntax check"
 '''
+
+[tasks."delegate:install"]
+description = "Install the pinned local-mlx-delegate dependencies"
+run = "pnpm install --frozen-lockfile"
+
+[tasks."delegate:build"]
+description = "Compile local-mlx-delegate"
+run = "pnpm build"
+
+[tasks."delegate:format-check"]
+description = "Check local-mlx-delegate formatting"
+run = "pnpm format:check"
+
+[tasks."delegate:lint"]
+description = "Lint local-mlx-delegate"
+run = "pnpm lint"
+
+[tasks."delegate:typecheck"]
+description = "Type-check local-mlx-delegate and its tests"
+run = "pnpm typecheck && pnpm test:typecheck"
+
+[tasks."delegate:test-offline"]
+description = "Run fake-endpoint local-mlx-delegate tests"
+run = "pnpm test:offline"
+
+[tasks."delegate:test-protocol"]
+description = "Run local-mlx-delegate MCP protocol tests"
+run = "pnpm test:protocol"
+
+[tasks."delegate:host-smoke"]
+description = "Check installed host discovery and invoke status through the configured stdio command"
+run = "pnpm test:host-smoke"
+
+[tasks."delegate:test-single"]
+description = "Probe and consult one manually started single-Mac profile; requires LOCAL_MLX_DELEGATE_LIVE_PROFILE"
+run = "pnpm test:single"
+
+[tasks."delegate:test-cluster"]
+description = "Probe and consult one manually started cluster profile; requires LOCAL_MLX_DELEGATE_LIVE_PROFILE"
+run = "pnpm test:cluster"
+
+[tasks."delegate:test-worker"]
+description = "Probe and consult the manually started worker tunnel after primary profiles pass"
+run = "pnpm test:worker"
+
+[tasks."delegate:eval"]
+description = "Evaluate one manually started profile with identical workloads; requires LOCAL_MLX_DELEGATE_LIVE_PROFILE"
+run = "pnpm eval"
+
+[tasks."delegate:recommend"]
+description = "Derive provisional routing thresholds from complete comparable evaluation evidence"
+run = "pnpm recommend"
+
+[tasks."delegate:test-behavior"]
+description = "Run one opt-in cross-host release scenario; requires LOCAL_MLX_DELEGATE_BEHAVIOR_SCENARIO and any ready profile"
+run = "pnpm test:behavior"
+
+[tasks."delegate:status"]
+description = "Inspect configured local inference backends (read-only)"
+run = "pnpm status"
+
+[tasks."delegate:doctor"]
+description = "Run read-only local-mlx-delegate diagnostics"
+run = "pnpm doctor"
+
+[tasks."delegate:consult"]
+description = "Run a bounded read-only local LLM consultation"
+run = "node dist/cli.js delegate"
+
+[tasks."delegate:leases"]
+description = "Inspect shared local-mlx-delegate leases and wait tickets"
+run = "node dist/cli.js leases"
+
+[tasks."delegate:configure"]
+description = "Preview or apply one project-local host MCP configuration"
+run = "node dist/cli.js configure"
+
+[tasks."delegate:check"]
+description = "Run all offline local-mlx-delegate acceptance checks"
+run = "pnpm check"
