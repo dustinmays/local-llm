@@ -1,0 +1,4 @@
+interface:
+  display_name: "Local MLX Delegate"
+  short_description: "Route bounded advisory work to local MLX"
+  default_prompt: "Use $local-mlx-delegate to get a bounded local-model second opinion on this task."

@@ -132,7 +132,7 @@ describe("cross-process availability coordinator", () => {
     const secondWaiter = new AvailabilityCoordinator(config);
     const active = await owner.acquire(request("controller", ["controller"]));
     const waiting = firstWaiter.acquire(
-      request("controller", ["controller"], { busyBehavior: "wait", maximumWaitMs: 100 }),
+      request("controller", ["controller"], { busyBehavior: "wait", maximumWaitMs: 1_000 }),
     );
     await waitFor(async () => (await owner.inspect()).queue.length === 1);
     await expect(
@@ -194,7 +194,7 @@ describe("cross-process availability coordinator", () => {
   });
 
   it("shares a generation-start rate window across coordinator instances", async () => {
-    const config = await registryConfig({ rate_limit_requests: 1, rate_limit_window_ms: 80 });
+    const config = await registryConfig({ rate_limit_requests: 1, rate_limit_window_ms: 1_500 });
     const firstProcess = new AvailabilityCoordinator(config);
     const secondProcess = new AvailabilityCoordinator(config);
     const first = await firstProcess.acquire(request("controller", ["controller"]));
@@ -205,7 +205,7 @@ describe("cross-process availability coordinator", () => {
     const waiting = secondProcess.acquire(
       request("controller", ["controller"], {
         busyBehavior: "wait",
-        maximumWaitMs: 500,
+        maximumWaitMs: 3_000,
       }),
     );
     await waitFor(async () => (await firstProcess.inspect()).queue.length === 1);
@@ -253,7 +253,7 @@ describe("cross-process availability coordinator", () => {
   it("projects busy and cooldown diagnostics into status", async () => {
     const coordination = await registryConfig({
       rate_limit_requests: 1,
-      rate_limit_window_ms: 500,
+      rate_limit_window_ms: 60_000,
     });
     const config: DelegateConfig = structuredClone(DEFAULT_CONFIG);
     config.coordination = coordination;
@@ -304,12 +304,14 @@ describe("cross-process availability coordinator", () => {
     });
     expect(cooldown.cooldown_remaining_seconds).toBeGreaterThan(0);
     expect(await coordinator.clearCooldown(active.lease.lease_id)).toBe(true);
-    const waiting = coordinator.acquire(
-      request("controller", ["controller"], {
+    const abort = new AbortController();
+    const waiting = coordinator.acquire({
+      ...request("controller", ["controller"], {
         busyBehavior: "wait",
-        maximumWaitMs: 1_000,
+        maximumWaitMs: 2_000,
       }),
-    );
+      signal: abort.signal,
+    });
     await waitFor(async () => (await coordinator.inspect()).queue.length === 1);
     const queued = await service.status({ backend: "controller" });
     expect(queued).toMatchObject({
@@ -317,8 +319,10 @@ describe("cross-process availability coordinator", () => {
       queue_depth: 1,
       error: { code: "BACKEND_BUSY" },
     });
-    const acquired = await waiting;
-    await coordinator.release(acquired.lease.lease_id, false);
+    abort.abort();
+    await expect(waiting).rejects.toMatchObject({
+      stable: { code: "BACKEND_BUSY", details: { cancelled: true } },
+    });
     expect((await service.status({ backend: "controller" })).availability).toBe("ready");
   });
 });

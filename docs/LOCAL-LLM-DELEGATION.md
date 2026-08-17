@@ -579,7 +579,8 @@ local-mlx-delegate configure copilot-cli
 local-mlx-delegate configure vscode
 ```
 
-The command prints a reviewable configuration by default. `--apply` performs
+Every command requires `--workspace-root PATH` and accepts `--json`. The
+command prints a reviewable configuration by default. `--apply` performs
 an atomic update after creating a timestamped backup. Repeated application must
 update the existing named entry rather than duplicate it.
 
@@ -590,13 +591,29 @@ Generate:
   CLI, preserving unrelated servers already present; and
 - `.vscode/mcp.json` for VS Code/Copilot.
 
-Each configuration invokes the same compiled command:
+Each configuration invokes the same compiled command through its canonical
+absolute executable path, fixing the canonical workspace root explicitly:
 
 ```text
-local-mlx-delegate serve --workspace-root /absolute/repository/path
+/absolute/repository/dist/cli.js serve --workspace-root /absolute/repository
 ```
 
-Also document the host-native list/status command used to verify discovery.
+Use the server name `local-mlx-delegate`. The shared Claude/Copilot entry uses
+`type: "stdio"`, which both native schemas accept; VS Code uses the same entry
+under its `servers` root. Accept JSONC input and preserve unrelated servers and
+top-level fields; a changed file is emitted as normalized JSON. Reject files
+over 1 MiB and any target path containing a symlink.
+Existing files receive mode-0600 backups named
+`FILE.backup-<compact UTC ISO timestamp>` only when bytes change; the atomic
+replacement preserves the existing target mode. New project configuration
+files use mode 0644.
+
+Verify discovery with `codex mcp list --json`,
+`claude mcp get local-mlx-delegate`,
+`copilot mcp get local-mlx-delegate --json`, and VS Code's **MCP: List
+Servers** command. Invoke `local_llm_status` explicitly in each host. Claude,
+Copilot CLI, and Codex project configurations remain subject to their native
+workspace trust/approval controls.
 Do not claim support based only on generating syntactically valid config; the
 behavioral tests must exercise real host calls.
 

@@ -20,6 +20,13 @@ import {
 import { DelegationService } from "./delegation.js";
 import { runDoctor } from "./doctor.js";
 import { DomainError, stableError } from "./errors.js";
+import {
+  configureHost,
+  HostConfigurationError,
+  HostNameSchema,
+  type HostConfigurationResult,
+  type HostName,
+} from "./host-config.js";
 import { Logger } from "./logging.js";
 import { createMcpServer } from "./mcp/server.js";
 import { StatusService } from "./service.js";
@@ -34,6 +41,7 @@ Usage:
   local-mlx-delegate serve --workspace-root PATH [--config PATH]
   local-mlx-delegate status [--backend NAME] [--config PATH] [--json]
   local-mlx-delegate doctor [--backend NAME] [--workspace-root PATH] [--config PATH] [--json]
+  local-mlx-delegate configure codex|claude|copilot-cli|vscode --workspace-root PATH [--apply] [--json]
   local-mlx-delegate leases [--config PATH] [--json]
   local-mlx-delegate leases clear --lease-id UUID --confirm [--config PATH] [--json]
   local-mlx-delegate delegate --task TEXT --cwd PATH [--path PATH ...] [--include-diff]
@@ -46,7 +54,7 @@ Usage:
 Backends: auto, controller, worker, cluster
 `;
 
-type Command = "serve" | "status" | "doctor" | "delegate" | "leases";
+type Command = "serve" | "status" | "doctor" | "delegate" | "leases" | "configure";
 export type ParsedArguments = {
   command: Command | "help" | "version";
   backend: BackendSelection;
@@ -65,6 +73,8 @@ export type ParsedArguments = {
   leaseAction: "inspect" | "clear";
   leaseId?: string;
   confirm: boolean;
+  host?: HostName;
+  apply: boolean;
 };
 
 class UsageError extends Error {
@@ -85,6 +95,7 @@ function baseArguments(command: ParsedArguments["command"]): ParsedArguments {
     maxOutputTokens: 4_096,
     leaseAction: "inspect",
     confirm: false,
+    apply: false,
   };
 }
 
@@ -111,15 +122,26 @@ export function parseArguments(arguments_: string[]): ParsedArguments {
     command !== "status" &&
     command !== "doctor" &&
     command !== "delegate" &&
-    command !== "leases"
+    command !== "leases" &&
+    command !== "configure"
   ) {
-    throw new UsageError("Expected serve, status, doctor, delegate, leases, --help, or --version.");
+    throw new UsageError(
+      "Expected serve, status, doctor, delegate, leases, configure, --help, or --version.",
+    );
   }
 
   const result = baseArguments(command);
   let firstOption = 1;
   if (command === "leases" && arguments_[1] === "clear") {
     result.leaseAction = "clear";
+    firstOption = 2;
+  }
+  if (command === "configure") {
+    const host = HostNameSchema.safeParse(arguments_[1]);
+    if (!host.success) {
+      throw new UsageError("configure requires codex, claude, copilot-cli, or vscode.");
+    }
+    result.host = host.data;
     firstOption = 2;
   }
   const seen = new Set<string>();
@@ -133,7 +155,7 @@ export function parseArguments(arguments_: string[]): ParsedArguments {
     seen.add(flag);
     switch (flag) {
       case "--backend": {
-        if (command === "serve" || command === "leases")
+        if (command === "serve" || command === "leases" || command === "configure")
           throw new UsageError("--backend is not valid for this command.");
         const parsed = BackendSelectionSchema.safeParse(takeValue(arguments_, index, flag));
         if (!parsed.success)
@@ -143,6 +165,7 @@ export function parseArguments(arguments_: string[]): ParsedArguments {
         break;
       }
       case "--config":
+        if (command === "configure") throw new UsageError("--config is not valid for configure.");
         result.configPath = takeValue(arguments_, index, flag);
         index += 1;
         break;
@@ -151,6 +174,10 @@ export function parseArguments(arguments_: string[]): ParsedArguments {
           throw new UsageError("--workspace-root is not valid for this command.");
         result.workspaceRoot = takeValue(arguments_, index, flag);
         index += 1;
+        break;
+      case "--apply":
+        if (command !== "configure") throw new UsageError("--apply is only valid for configure.");
+        result.apply = true;
         break;
       case "--json":
         if (command === "serve") throw new UsageError("--json is not valid for serve.");
@@ -240,6 +267,9 @@ export function parseArguments(arguments_: string[]): ParsedArguments {
   ) {
     throw new UsageError("leases clear requires --lease-id and --confirm.");
   }
+  if (command === "configure" && result.workspaceRoot === undefined) {
+    throw new UsageError("configure requires --workspace-root.");
+  }
   return result;
 }
 
@@ -307,6 +337,18 @@ function printLeases(result: LeaseCommandResult): void {
   }
 }
 
+function printHostConfiguration(result: HostConfigurationResult): void {
+  process.stdout.write(
+    `${result.applied ? (result.changed ? "Updated" : "Already configured") : "Proposed"} ${result.host} configuration: ${result.target_path}\n`,
+  );
+  if (result.backup_path !== null) process.stdout.write(`Backup: ${result.backup_path}\n`);
+  if (!result.applied) {
+    process.stdout.write("\n");
+    process.stdout.write(result.content);
+    process.stdout.write("\nReview the proposal, then rerun with --apply to write it.\n");
+  }
+}
+
 function emitUnexpected(command: string | null): void {
   new Logger("info").log({
     level: "error",
@@ -357,6 +399,33 @@ export async function runCli(arguments_: string[]): Promise<number> {
   if (parsed.command === "version") {
     process.stdout.write(`${VERSION}\n`);
     return 0;
+  }
+
+  if (parsed.command === "configure") {
+    try {
+      const result = await configureHost({
+        host: HostNameSchema.parse(parsed.host),
+        workspaceRoot: parsed.workspaceRoot ?? "",
+        apply: parsed.apply,
+      });
+      if (parsed.json) process.stdout.write(`${JSON.stringify(result)}\n`);
+      else printHostConfiguration(result);
+      new Logger("info").log({
+        level: "info",
+        event: "request_complete",
+        requestId: result.request_id,
+        command: `configure_${result.host}`,
+        outcome: result.changed ? (result.applied ? "updated" : "proposed") : "unchanged",
+      });
+      return 0;
+    } catch (error) {
+      if (error instanceof HostConfigurationError) {
+        process.stderr.write(`${error.message}\n`);
+        return 2;
+      }
+      emitUnexpected("configure");
+      return 70;
+    }
   }
 
   try {

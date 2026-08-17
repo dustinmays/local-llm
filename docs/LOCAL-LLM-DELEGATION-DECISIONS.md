@@ -108,6 +108,43 @@ Status values are `accepted`, `provisional`, `superseded`, and `open`.
   fails immediately when capacity or the rate window is unavailable. Positive
   waits are always bounded by the requested deadline and cancellation signal.
 
+### D010 — Host configuration is project-local and path-fixed
+
+- Status: accepted
+- Decided: 2026-08-16, Issue 14
+- Decision: Codex uses `.codex/config.toml`; Claude Code and Copilot CLI share
+  the root `.mcp.json`; VS Code uses `.vscode/mcp.json`. All use the server name
+  `local-mlx-delegate`. The JSON entry uses the cross-host `stdio` type. Each
+  entry runs the canonical absolute `dist/cli.js` and passes `serve` plus the
+  canonical absolute workspace root as literal arguments rather than relying
+  on host-specific environment expansion or a globally linked package.
+- Rationale: the host processes run on the same Mac, while literal canonical
+  paths avoid differences in host PATH and environment interpolation.
+
+### D011 — Apply is byte-aware, atomic, and symlink-averse
+
+- Status: accepted
+- Decided: 2026-08-16, Issue 14
+- Decision: Preview is the default. `--apply` writes only when proposed bytes
+  differ. Before changing an existing file it creates an exclusive mode-0600
+  `FILE.backup-<compact UTC ISO timestamp>` backup, adding a numeric suffix on
+  a same-millisecond collision. The replacement is written and flushed in the
+  target directory, atomically renamed, and directory-flushed. Existing target
+  mode is retained; new files use 0644. Target paths containing symlinks and
+  configuration files over 1 MiB are rejected. JSONC input is accepted and a
+  changed file is normalized while retaining unrelated fields; the targeted
+  Codex TOML table is replaced without rewriting unrelated text.
+
+### D012 — Agent guidance is tracked, local, and optional
+
+- Status: accepted
+- Decided: 2026-08-16, Issue 14
+- Decision: Track the standard `.agents/skills/local-mlx-delegate` skill plus
+  concise `CLAUDE.md` and `.github/copilot-instructions.md` equivalents. Do not
+  install a user-global symlink automatically. Correctness, safety, discovery,
+  and tool schemas remain entirely functional when these guidance files are
+  absent.
+
 ## Provisional defaults
 
 These values are safe starting points selected because the plan did not assign
@@ -142,26 +179,6 @@ deadline.
   ambiguous-timeout scenarios. Safety should favor a longer cooldown if the
   upstream can continue substantially beyond the client deadline.
 
-### O002 — Host configuration file locations and command forms
-
-- Status: open
-- Target: Issue 14
-- Question: Confirm each supported host's current configuration discovery,
-  exact stdio server fields, backup naming, and whether workspace-root values
-  should be emitted per repository or through an environment placeholder.
-- Constraint: review-first output, explicit `--apply`, atomic writes,
-  timestamped backups, and preservation of unrelated configuration are already
-  fixed by the main plan.
-
-### O003 — Optional agent-guidance content and installation scope
-
-- Status: open
-- Target: Issue 14
-- Question: Which host-specific guidance files are useful, and should they be
-  repository-local or user-global by default?
-- Constraint: guidance remains optional; all safety and correctness rules must
-  stay in the server, schemas, and tool descriptions.
-
 ### O004 — Live model/profile release evidence
 
 - Status: open
@@ -171,3 +188,14 @@ deadline.
 - Evidence needed: sequential and overlapping calls from Codex CLI, Claude
   Code, GitHub Copilot CLI, and the VS Code/Copilot smoke path, with safe server
   logs retained.
+
+### O005 — Complete installed-host live evidence
+
+- Status: open
+- Target: Issue 15
+- Question: Does every installed target host both discover the project entry
+  and invoke `local_llm_status` under its current workspace-trust state?
+- Current evidence: native Codex, Claude, and VS Code executables are present
+  on the implementation machine; GitHub Copilot CLI is not installed. The
+  opt-in `delegate:host-smoke` task covers native discovery and a real stdio
+  status call without making host installation part of offline checks.

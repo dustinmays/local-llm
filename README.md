@@ -64,6 +64,57 @@ logs are newline-delimited JSON on stderr.
 ./dist/cli.js serve --workspace-root "$PWD"
 ```
 
+### Configure Codex, Claude, Copilot CLI, or VS Code
+
+Host configuration is project-local and review-first. Build once, preview the
+exact proposed file, then add `--apply` only after reviewing it:
+
+```bash
+./dist/cli.js configure codex --workspace-root "$PWD"
+./dist/cli.js configure claude --workspace-root "$PWD"
+./dist/cli.js configure copilot-cli --workspace-root "$PWD"
+./dist/cli.js configure vscode --workspace-root "$PWD"
+
+./dist/cli.js configure codex --workspace-root "$PWD" --apply
+```
+
+The targets are `.codex/config.toml`, the root `.mcp.json` shared by Claude
+Code and Copilot CLI, and `.vscode/mcp.json`. Every entry runs the canonical
+absolute `dist/cli.js` with `serve --workspace-root` and the canonical absolute
+repository path. Existing unrelated servers and top-level fields are preserved.
+Applying an already-current entry makes no write and no backup. A changed
+existing file is copied first to `FILE.backup-<UTC timestamp>`, then replaced
+atomically. Configuration paths containing symlinks are rejected.
+
+Verify native discovery after trusting the project in each installed host:
+
+| Host | Discovery | Explicit status invocation |
+|---|---|---|
+| Codex CLI | `codex mcp list --json` or `/mcp` | Ask: “Call `local_llm_status` and report only its structured result.” |
+| Claude Code | `claude mcp get local-mlx-delegate` or `/mcp` | Use the same explicit request after approving the project server. |
+| Copilot CLI | `copilot mcp get local-mlx-delegate --json` or `/mcp show local-mlx-delegate` | Use the same explicit request in a trusted folder. |
+| VS Code/Copilot | Run **MCP: List Servers** | In Agent mode, explicitly request `local_llm_status`. |
+
+`mise run delegate:host-smoke` checks every installed CLI's native discovery
+and invokes status through the configured stdio command. It skips host
+executables that are not installed; configure every installed host first.
+`doctor --workspace-root "$PWD"` reports installed/configured host pairs as
+pass, warn, or skip without changing them.
+
+To remove the integration, delete only the `local-mlx-delegate` table from
+`.codex/config.toml` or the named object from `mcpServers`/`servers` in the
+corresponding JSON file. Do not use a host's user-scope remove command for this
+project entry. To recover from an unwanted update, close the host, compare the
+timestamped backup, then replace the configuration with that backup. Atomic
+replacement keeps the original target intact if the final write cannot
+complete; a backup may remain and can be inspected or removed manually.
+
+The tracked `.agents/skills/local-mlx-delegate` skill, `CLAUDE.md`, and
+`.github/copilot-instructions.md` provide optional routing advice. MCP
+discovery, schemas, path safety, coordination, and lifecycle restrictions do
+not depend on those files. Remotely hosted agents cannot reach these loopback
+stdio services; this integration is for clients running on the Mac.
+
 The built-in endpoints and resource groups are:
 
 | Backend | API base URL | Resource groups | Startup hint |

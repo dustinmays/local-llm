@@ -10,10 +10,17 @@ import {
   type DoctorResult,
 } from "./contracts.js";
 import { stableError } from "./errors.js";
+import {
+  discoverHostExecutable,
+  HostConfigurationError,
+  inspectHostConfiguration,
+  type HostName,
+} from "./host-config.js";
 import { StatusService } from "./service.js";
 
 const PACKAGE_VERSION = "0.1.0";
 const EXPECTED_NODE_VERSION = "24.19.0";
+const HOSTS: HostName[] = ["codex", "claude", "copilot-cli", "vscode"];
 
 export type DoctorOptions = {
   backend?: BackendSelection;
@@ -74,6 +81,60 @@ async function workspaceCheck(workspaceRoot: string | null): Promise<DoctorCheck
   }
 }
 
+async function hostChecks(workspaceRoot: string | null): Promise<DoctorCheck[]> {
+  if (workspaceRoot === null) {
+    return HOSTS.map((host) => ({
+      name: `host_${host.replace("-", "_")}`,
+      status: "skip",
+      message: "Host discovery requires a configured workspace root.",
+      error: null,
+    }));
+  }
+  return await Promise.all(
+    HOSTS.map(async (host): Promise<DoctorCheck> => {
+      const executable = await discoverHostExecutable(host);
+      try {
+        const inspection = await inspectHostConfiguration(host, workspaceRoot);
+        if (inspection.configured) {
+          return {
+            name: `host_${host.replace("-", "_")}`,
+            status: executable === null ? "warn" : "pass",
+            message:
+              executable === null
+                ? "The project entry is configured, but the host executable is not on PATH."
+                : "The host executable and project MCP entry are available.",
+            error: null,
+          };
+        }
+        if (executable === null && !inspection.exists) {
+          return {
+            name: `host_${host.replace("-", "_")}`,
+            status: "skip",
+            message: "The optional host is not installed or configured for this workspace.",
+            error: null,
+          };
+        }
+        return {
+          name: `host_${host.replace("-", "_")}`,
+          status: "warn",
+          message: `${inspection.message} Run the review-first configure command for this host.`,
+          error: null,
+        };
+      } catch (error) {
+        return {
+          name: `host_${host.replace("-", "_")}`,
+          status: "warn",
+          message:
+            error instanceof HostConfigurationError
+              ? error.message
+              : "The host project configuration could not be inspected safely.",
+          error: null,
+        };
+      }
+    }),
+  );
+}
+
 export async function runDoctor(
   service: StatusService,
   options: DoctorOptions = {},
@@ -101,6 +162,7 @@ export async function runDoctor(
   });
   checks.push(await entrypointCheck(entrypoint));
   checks.push(await workspaceCheck(service.config.workspace_root));
+  checks.push(...(await hostChecks(service.config.workspace_root)));
 
   const availability = await service.coordinator.inspect();
   if (!availability.healthy) {

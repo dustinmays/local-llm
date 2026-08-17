@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { access, chmod, mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -20,6 +20,7 @@ import {
 } from "../src/contracts.js";
 import { DelegationService } from "../src/delegation.js";
 import { Logger } from "../src/logging.js";
+import { HostConfigurationResultSchema } from "../src/host-config.js";
 import { createMcpServer, DELEGATE_TOOL_NAME, STATUS_TOOL_NAME } from "../src/mcp/server.js";
 import { StatusService } from "../src/service.js";
 import { startFakeUpstream } from "./helpers/fake-upstream.js";
@@ -464,6 +465,51 @@ describe("compiled CLI and doctor", () => {
     } finally {
       await upstream.close();
     }
+  });
+
+  it("previews and idempotently applies host configuration through the compiled CLI", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "local-mlx-configure-cli-"));
+    temporaryDirectories.push(workspace);
+    await mkdir(join(workspace, "dist"));
+    await writeFile(join(workspace, "dist", "cli.js"), "#!/usr/bin/env node\n", {
+      mode: 0o755,
+    });
+    await chmod(join(workspace, "dist", "cli.js"), 0o755);
+
+    const preview = await invoke(
+      ["configure", "codex", "--workspace-root", workspace, "--json"],
+      {},
+    );
+    expect(preview.exitCode).toBe(0);
+    expect(preview.stdout.trim().split("\n")).toHaveLength(1);
+    expect(
+      HostConfigurationResultSchema.parse(JSON.parse(preview.stdout) as unknown),
+    ).toMatchObject({ applied: false, changed: true, backup_path: null });
+    await expect(access(join(workspace, ".codex", "config.toml"))).rejects.toThrow();
+
+    const applied = await invoke(
+      ["configure", "codex", "--workspace-root", workspace, "--apply", "--json"],
+      {},
+    );
+    expect(applied.exitCode).toBe(0);
+    expect(
+      HostConfigurationResultSchema.parse(JSON.parse(applied.stdout) as unknown),
+    ).toMatchObject({
+      applied: true,
+      changed: true,
+      backup_path: null,
+    });
+    const second = await invoke(
+      ["configure", "codex", "--workspace-root", workspace, "--apply", "--json"],
+      {},
+    );
+    expect(HostConfigurationResultSchema.parse(JSON.parse(second.stdout) as unknown)).toMatchObject(
+      {
+        applied: true,
+        changed: false,
+        backup_path: null,
+      },
+    );
   });
 
   it("arbitrates capacity and FIFO waits across independent CLI processes", async () => {

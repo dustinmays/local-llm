@@ -22,11 +22,13 @@
     "test:typecheck": "tsc --noEmit -p tsconfig.test.json",
     "test:offline": "vitest run --exclude tests/mcp-protocol.test.ts",
     "test:protocol": "pnpm build && vitest run tests/mcp-protocol.test.ts",
+    "test:host-smoke": "pnpm build && LOCAL_MLX_DELEGATE_HOST_SMOKE=1 vitest run tests/host-smoke.test.ts",
     "test": "pnpm build && vitest run",
     "status": "node dist/cli.js status",
     "doctor": "node dist/cli.js doctor",
     "delegate": "node dist/cli.js delegate",
     "leases": "node dist/cli.js leases",
+    "configure": "node dist/cli.js configure",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:typecheck && pnpm test:offline && pnpm build"
   },
   "dependencies": {
