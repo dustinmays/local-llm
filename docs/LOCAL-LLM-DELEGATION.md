@@ -991,6 +991,11 @@ Acceptance behavior:
 
 This chunk depends on chunk 4 and is the version 1 release gate.
 
+Implementation note (2026-08-17): the opt-in Issue 15 harness and redacted
+evidence schemas are implemented. The reproducible operator sequence is in
+[the v1 release runbook](LOCAL-LLM-DELEGATION-RELEASE.md). Live release evidence
+is still required; implementation of a gate is not itself a passing gate.
+
 ## Final behavioral integration tests
 
 These scenarios are the last implementation phase and the release gate. Run

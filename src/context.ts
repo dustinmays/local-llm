@@ -401,22 +401,11 @@ export async function collectContext(options: {
   maximumCharacters: number;
   signal?: AbortSignal;
 }): Promise<PackedContext> {
-  if (!isAbsolute(options.cwd)) {
-    throw new DomainError(
-      stableError("INVALID_WORKSPACE", "The delegation cwd must be absolute.", {
-        retryable: false,
-      }),
-    );
-  }
-  const cwd = await resolveContainedPath(options.workspace, options.workspace.root, options.cwd);
-  const cwdMetadata = await stat(cwd);
-  if (!cwdMetadata.isDirectory()) {
-    throw new DomainError(
-      stableError("INVALID_WORKSPACE", "The delegation cwd must be a directory.", {
-        retryable: false,
-      }),
-    );
-  }
+  const cwd = await validateContextSelection({
+    workspace: options.workspace,
+    cwd: options.cwd,
+    paths: options.paths,
+  });
   const { candidates, manifests } = await collectCandidates(options.workspace, cwd, options.paths);
   const sections: { relativePath: string; content: string }[] = [];
   let remaining = options.maximumCharacters;
@@ -446,4 +435,29 @@ export async function collectContext(options: {
       .filter((entry) => entry.truncated || entry.omitted)
       .map((entry) => `Context item ${entry.relative_path} was truncated or omitted.`),
   };
+}
+
+export async function validateContextSelection(options: {
+  workspace: ResolvedWorkspace;
+  cwd: string;
+  paths: string[];
+}): Promise<string> {
+  if (!isAbsolute(options.cwd)) {
+    throw new DomainError(
+      stableError("INVALID_WORKSPACE", "The delegation cwd must be absolute.", {
+        retryable: false,
+      }),
+    );
+  }
+  const cwd = await resolveContainedPath(options.workspace, options.workspace.root, options.cwd);
+  const cwdMetadata = await stat(cwd);
+  if (!cwdMetadata.isDirectory()) {
+    throw new DomainError(
+      stableError("INVALID_WORKSPACE", "The delegation cwd must be a directory.", {
+        retryable: false,
+      }),
+    );
+  }
+  await collectCandidates(options.workspace, cwd, options.paths);
+  return cwd;
 }

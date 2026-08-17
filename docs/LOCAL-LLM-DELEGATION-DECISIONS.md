@@ -145,6 +145,44 @@ Status values are `accepted`, `provisional`, `superseded`, and `open`.
   and tool schemas remain entirely functional when these guidance files are
   absent.
 
+### D013 — Context safety precedes backend probing
+
+- Status: accepted
+- Decided: 2026-08-17, Issue 15
+- Decision: Delegation validates its prompt envelope and canonically validates
+  the selected paths before probing or selecting a backend. Direct traversal,
+  symlink escape, sensitive-path, and prompt-envelope failures therefore remain
+  deterministic even while every backend is offline, and invalid context does
+  not trigger any upstream request. Approved file contents and Git diffs are
+  collected only after a viable backend/model is selected.
+- Rationale: the offline release scenario exposed that probing first could
+  mask a containment error as `BACKEND_UNAVAILABLE`.
+
+### D014 — Release evidence is content-minimized and owner-only
+
+- Status: accepted
+- Decided: 2026-08-17, Issue 15
+- Decision: Retain strict version-1 JSON with commit/runtime identity, safe
+  metrics and invariant results. Raw host stdout/stderr is replaced by byte
+  counts and SHA-256 digests. Prompts, source, answers, response bodies,
+  credentials, raw environment values, and absolute workspace paths are not
+  persisted. Evidence is written mode 0600 by flush and atomic rename under a
+  gitignored directory.
+
+### D015 — The automated capacity pair is Codex then Claude
+
+- Status: accepted
+- Decided: 2026-08-17, Issue 15
+- Decision: The ready behavioral gate first requires sequential success from
+  Codex CLI, Claude Code, Copilot CLI, and the VS Code-equivalent MCP client.
+  Capacity arbitration then uses Codex as the capacity-one owner and Claude as
+  the different competing client, once fail-fast and once with a bounded FIFO
+  wait. Copilot remains a mandatory sequential host rather than a fallback for
+  a missing capacity participant.
+- Rationale: a fixed client pair makes retained runs comparable and ensures
+  that a missing required host fails the release gate instead of silently
+  changing the scenario.
+
 ## Provisional defaults
 
 These values are safe starting points selected because the plan did not assign
@@ -162,6 +200,8 @@ Live release testing may tune them without changing the behavior contract.
 | P007 | `queue_poll_interval_ms` | 50 ms | Responsive locally without a hot filesystem polling loop. |
 | P008 | `rate_limit_requests` | 60 starts | A permissive safety ceiling for local interactive use. |
 | P009 | `rate_limit_window_ms` | 60,000 ms | One-minute global sliding window paired with P008. |
+| P010 | routing materiality threshold | 0.05 mean correctness | Prefer measured correctness only when the five-workload difference exceeds five percentage points; otherwise prefer lower median latency. |
+| P011 | unavailable lifecycle metrics | `null` with safe reason | Startup time and upstream peak memory are not exposed by the read-only API; do not add lifecycle control solely to populate them. |
 
 Validation additionally requires the heartbeat interval to be less than half
 the lease TTL and the mutex stale threshold to exceed the mutex acquisition
@@ -188,6 +228,9 @@ deadline.
 - Evidence needed: sequential and overlapping calls from Codex CLI, Claude
   Code, GitHub Copilot CLI, and the VS Code/Copilot smoke path, with safe server
   logs retained.
+- Current state (2026-08-17): the strict live/evaluation harness exists, but
+  controller, worker, and cluster probes were all offline. No qualifying model
+  or performance evidence has been recorded, so routing remains provisional.
 
 ### O005 — Complete installed-host live evidence
 
@@ -199,3 +242,19 @@ deadline.
   on the implementation machine; GitHub Copilot CLI is not installed. The
   opt-in `delegate:host-smoke` task covers native discovery and a real stdio
   status call without making host installation part of offline checks.
+- Current blocker (2026-08-17): project host entries have not been applied or
+  trusted, and GitHub Copilot CLI is still absent. The release behavior task
+  deliberately fails rather than skipping a required installed/configured
+  host. Applying project configuration remains an explicit operator action.
+
+### O006 — Complete and retain the Issue 15 live release gate
+
+- Status: open
+- Target: Issue 15 operator run
+- Question: Do all four primary profiles, the later worker-tunnel profiles,
+  three native CLI hosts, VS Code-equivalent client, and both final behavior
+  scenarios pass with comparable retained evidence?
+- Current evidence: offline schemas, scoring, containment ordering, redaction,
+  and harness compilation are covered by the ordinary check. Live endpoints
+  were all unavailable on 2026-08-17, so no lifecycle action was taken and the
+  release gate remains incomplete.

@@ -2,7 +2,12 @@ import { randomUUID } from "node:crypto";
 import type { CompletionAdapter } from "./backends/types.js";
 import { OpenAiCompatibleCompletionAdapter } from "./backends/openai-compatible.js";
 import { classifyModel, type DelegateConfig } from "./config.js";
-import { collectContext, resolveWorkspaceRoot, type ResolvedWorkspace } from "./context.js";
+import {
+  collectContext,
+  resolveWorkspaceRoot,
+  validateContextSelection,
+  type ResolvedWorkspace,
+} from "./context.js";
 import {
   DelegateResultSchema,
   type ConfiguredBackendStatus,
@@ -191,6 +196,7 @@ export class DelegationService {
     let inputCharacters = 0;
     let queueSeconds = 0;
     let availabilityOverride: DelegateResult["availability"] | null = null;
+    let prompt: string;
 
     const failure = (error: StableError): DelegateResult => {
       const parsed = DelegateResultSchema.parse({
@@ -234,17 +240,6 @@ export class DelegationService {
     }
 
     try {
-      const status = await this.statusService.status({
-        backend: input.backend,
-        requestId,
-        command,
-        logCompletion: false,
-      });
-      const selected = selectModel(this.config, status.configured_backends, input);
-      if (!("backendStatus" in selected)) return failure(selected);
-      selection = selected;
-      warnings = [...selected.warnings];
-
       const emptyPrompt = renderDelegationPrompt({
         task: input.task,
         backend: input.backend,
@@ -258,13 +253,27 @@ export class DelegationService {
           stableError(
             "INPUT_LIMIT_EXCEEDED",
             "The task and prompt envelope exceed max_input_chars.",
-            {
-              backend: selection.backendStatus.backend,
-              retryable: false,
-            },
+            { retryable: false },
           ),
         );
       }
+      await validateContextSelection({
+        workspace: this.workspace,
+        cwd: input.cwd,
+        paths: input.paths,
+      });
+
+      const status = await this.statusService.status({
+        backend: input.backend,
+        requestId,
+        command,
+        logCompletion: false,
+      });
+      const selected = selectModel(this.config, status.configured_backends, input);
+      if (!("backendStatus" in selected)) return failure(selected);
+      selection = selected;
+      warnings = [...selected.warnings];
+
       const context = await collectContext({
         workspace: this.workspace,
         cwd: input.cwd,
@@ -275,7 +284,7 @@ export class DelegationService {
       });
       manifest = context.manifest;
       warnings = [...warnings, ...context.warnings];
-      const prompt = renderDelegationPrompt({
+      prompt = renderDelegationPrompt({
         task: input.task,
         backend: input.backend,
         quality: input.quality,

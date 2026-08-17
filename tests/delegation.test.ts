@@ -261,6 +261,7 @@ describe("safe delegation pipeline", () => {
       const escaped = await delegate.delegate(input(root, { paths: [outside.path] }));
       expect(escaped.error?.code).toBe("PATH_OUTSIDE_WORKSPACE");
       expect(JSON.stringify(escaped)).not.toContain(outside.root);
+      expect(upstream.requests).toHaveLength(0);
       const waiting = await delegate.delegate(
         input(root, { busy_behavior: "wait", max_wait_seconds: 1 }),
       );

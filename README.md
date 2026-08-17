@@ -222,6 +222,15 @@ mise run delegate:test-protocol
 Live checks and consultations are optional and never change model lifecycle
 state or repository files.
 
+The opt-in v1 release gate covers manually started single-Mac, worker-tunnel,
+and cluster profiles; identical correctness/performance workloads; and native
+Codex, Claude, Copilot CLI, and VS Code-equivalent behavior. It stores only
+redacted, mode-0600 evidence under a gitignored directory. See the
+[release runbook](docs/LOCAL-LLM-DELEGATION-RELEASE.md) for the exact profile
+sequence, environment variables, routing recommendation, and offline
+containment scenario. These tasks never establish or alter model lifecycle
+state themselves.
+
 ---
 
 ## How the single-Mac path fits together
