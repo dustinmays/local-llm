@@ -452,6 +452,11 @@ Propagate configuration all the way to the actual request:
 - use the active model ID returned by `/v1/models` as the completion request's
   `model` field;
 - apply `max_output_tokens` to the upstream token limit;
+- set `reasoning_effort: "none"` for LM Studio discovery mode so the bounded
+  limit yields a public final answer rather than only private reasoning; omit
+  the field for generic OpenAI-compatible backends;
+- never substitute `reasoning_content` for an empty public answer; return a
+  safe `UPSTREAM_PROTOCOL_ERROR` with primitive-only completion-state details;
 - make `backend` and `quality` affect routing;
 - record requested and actual quality in the result; and
 - include the actual model and endpoint in response metadata.
@@ -841,6 +846,7 @@ backend.
 - [Claude Code MCP configuration](https://code.claude.com/docs/en/mcp)
 - [GitHub Copilot CLI MCP configuration](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers)
 - [VS Code MCP configuration](https://code.visualstudio.com/docs/agents/reference/mcp-configuration)
+- [LM Studio reasoning controls](https://lmstudio.ai/changelog/lmstudio/lmstudio-v0.4.8)
 
 ## Delivery chunks and GitHub issue plan
 

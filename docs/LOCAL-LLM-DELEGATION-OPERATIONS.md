@@ -85,6 +85,13 @@ the probe reads `/health`, `/v1/models`, and `/api/v1/models`; delegation adds
 only `/v1/chat/completions`. An unloaded model visible through JIT discovery or
 an embedding model does not make the backend ready.
 
+LM Studio delegation sends `reasoning_effort: "none"`. Reasoning-capable models
+can otherwise spend the complete `max_output_tokens` allowance in
+`reasoning_content`, finish for length, and return an empty public `content`
+field. The delegate does not expose private reasoning as an answer. Generic
+OpenAI-compatible cluster requests omit this LM Studio-specific compatibility
+field.
+
 ## Manual stdio launch
 
 The production server command is:
@@ -269,3 +276,5 @@ endpoint and must never establish or change model lifecycle state.
 - [Copilot CLI MCP configuration and management](https://docs.github.com/en/copilot/how-tos/copilot-cli/customize-copilot/add-mcp-servers)
 - [VS Code MCP server management](https://code.visualstudio.com/docs/agent-customization/mcp-servers)
 - [VS Code MCP configuration and sandbox options](https://code.visualstudio.com/docs/agents/reference/mcp-configuration)
+- [LM Studio 0.4.8 reasoning controls](https://lmstudio.ai/changelog/lmstudio/lmstudio-v0.4.8)
+- [LM Studio Qwen3.6 model reasoning defaults](https://lmstudio.ai/models/qwen/qwen3.6-35b-a3b)

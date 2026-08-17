@@ -15,7 +15,7 @@ import { StatusService } from "../src/service.js";
 
 const execFileAsync = promisify(execFile);
 
-type InferenceMode = "success" | "malformed" | "invalid" | "slow" | "http-error";
+type InferenceMode = "success" | "malformed" | "invalid" | "reasoning-only" | "slow" | "http-error";
 type FakeInference = {
   url: string;
   requests: { method: string; path: string }[];
@@ -75,6 +75,17 @@ async function startInference(
           response.end("{");
         } else if (mode === "invalid") {
           response.end('{"choices":[]}');
+        } else if (mode === "reasoning-only") {
+          response.end(
+            JSON.stringify({
+              choices: [
+                {
+                  finish_reason: "length",
+                  message: { content: "", reasoning_content: "private reasoning" },
+                },
+              ],
+            }),
+          );
         } else if (mode === "http-error") {
           response.statusCode = 500;
           response.end('{"private":"upstream body"}');
@@ -173,6 +184,7 @@ describe("safe delegation pipeline", () => {
         max_tokens: 777,
         stream: false,
       });
+      expect(upstream.completionBodies[0]).not.toHaveProperty("reasoning_effort");
       const body = JSON.stringify(upstream.completionBodies[0]);
       expect(body).toContain("Find likely defects");
       expect(body).toContain("source.ts");
@@ -210,7 +222,10 @@ describe("safe delegation pipeline", () => {
         { method: "GET", path: "/api/v1/models" },
         { method: "POST", path: "/v1/chat/completions" },
       ]);
-      expect(upstream.completionBodies[0]).toMatchObject({ model });
+      expect(upstream.completionBodies[0]).toMatchObject({
+        model,
+        reasoning_effort: "none",
+      });
     } finally {
       await upstream.close();
     }
@@ -255,6 +270,30 @@ describe("safe delegation pipeline", () => {
       expect(result).toMatchObject({ ok: false, error: { code } });
       expect(upstream.requests.filter((request) => request.method === "POST")).toHaveLength(1);
       expect(JSON.stringify(result)).not.toContain("upstream body");
+    } finally {
+      await upstream.close();
+    }
+  });
+
+  it("rejects reasoning-only completions without exposing private reasoning", async () => {
+    const model = "fixture-fast-model";
+    const upstream = await startInference(model, "reasoning-only");
+    const { root } = await fixture();
+    try {
+      const result = await (await service(config(root, upstream, model))).delegate(input(root));
+      expect(result).toMatchObject({
+        ok: false,
+        error: {
+          code: "UPSTREAM_PROTOCOL_ERROR",
+          message: "The backend did not return a final answer within the output limit.",
+          details: {
+            empty_content: true,
+            finish_reason: "length",
+            reasoning_content_present: true,
+          },
+        },
+      });
+      expect(JSON.stringify(result)).not.toContain("private reasoning");
     } finally {
       await upstream.close();
     }

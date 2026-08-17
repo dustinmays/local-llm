@@ -21,8 +21,12 @@ cluster, and can send bounded advisory tasks to an already-loaded model.
 Status sends `GET /health` and `GET /v1/models`; LM Studio backends additionally
 send the read-only `GET /api/v1/models` request to distinguish loaded LLMs from
 JIT-visible downloaded and embedding models. Delegation additionally sends
-`POST /v1/chat/completions`. Neither path starts, stops, loads, unloads, swaps,
-or otherwise changes a model.
+`POST /v1/chat/completions`. LM Studio completion requests set
+`reasoning_effort` to `none` so a bounded output allowance produces a public
+final answer instead of being consumed entirely by private reasoning tokens;
+`reasoning_content` is never returned as the answer. Generic OpenAI-compatible
+cluster requests omit that compatibility field. Neither path starts, stops,
+loads, unloads, swaps, or otherwise changes a model.
 
 Install the exact Node 24 and pnpm toolchain, then build:
 
