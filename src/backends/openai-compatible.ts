@@ -37,7 +37,11 @@ const CompletionResponseSchema = z.object({
   choices: z
     .array(
       z.object({
-        message: z.object({ content: z.string().min(1) }),
+        finish_reason: z.string().max(128).nullable().optional(),
+        message: z.object({
+          content: z.string(),
+          reasoning_content: z.string().nullable().optional(),
+        }),
       }),
     )
     .min(1),
@@ -428,6 +432,7 @@ export class OpenAiCompatibleCompletionAdapter implements CompletionAdapter {
         ],
         max_tokens: request.maxOutputTokens,
         stream: false,
+        ...(request.definition.model_discovery === "lmstudio" ? { reasoning_effort: "none" } : {}),
       }),
       "utf8",
     );
@@ -501,6 +506,24 @@ export class OpenAiCompatibleCompletionAdapter implements CompletionAdapter {
           startupHint: request.definition.startup_hint,
           retryable: false,
         }),
+      );
+    }
+    if (choice.message.content.trim().length === 0) {
+      throw new UpstreamError(
+        stableError(
+          "UPSTREAM_PROTOCOL_ERROR",
+          "The backend did not return a final answer within the output limit.",
+          {
+            backend: request.backend,
+            startupHint: request.definition.startup_hint,
+            retryable: false,
+            details: {
+              empty_content: true,
+              finish_reason: choice.finish_reason ?? "unknown",
+              reasoning_content_present: (choice.message.reasoning_content?.trim().length ?? 0) > 0,
+            },
+          },
+        ),
       );
     }
     return choice.message.content;

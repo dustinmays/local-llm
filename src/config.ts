@@ -242,6 +242,7 @@ export const DEFAULT_CONFIG: DelegateConfig = DelegateConfigSchema.parse({
         fast: [
           "qwen3-coder-30b-a3b-instruct@4bit",
           "mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit",
+          "qwen3.6-35b",
         ],
         deep: [
           "qwen3-coder-30b-a3b-instruct@8bit",
@@ -259,6 +260,7 @@ export const DEFAULT_CONFIG: DelegateConfig = DelegateConfigSchema.parse({
         fast: [
           "qwen3-coder-30b-a3b-instruct@4bit",
           "mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit",
+          "qwen3.6-35b",
         ],
         deep: [
           "qwen3-coder-30b-a3b-instruct@8bit",

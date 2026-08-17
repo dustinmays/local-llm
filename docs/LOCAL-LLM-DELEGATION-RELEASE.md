@@ -89,6 +89,11 @@ Repeat for single deep, cluster fast, and cluster deep. Test the worker tunnel
 only after all four primary profiles pass. The worker path uses the same
 evaluation command with `worker-fast` or `worker-deep`.
 
+For LM Studio, the completion request disables hidden reasoning so the bounded
+output allowance measures the final answer. A response containing only
+`reasoning_content` is a protocol failure and must not be retained as model
+output or release evidence.
+
 The five workloads are stable fixtures approximating a 2K-token summary, a
 10K-token tracked diff review, a 25K-token multi-file analysis, strict JSON
 extraction, and a known cache-key defect. Validation uses fixed markers or an

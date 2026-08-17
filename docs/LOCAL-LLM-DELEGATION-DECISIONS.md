@@ -226,6 +226,25 @@ Status values are `accepted`, `provisional`, `superseded`, and `open`.
   maintained in
   [`LOCAL-LLM-DELEGATION-OPERATIONS.md`](LOCAL-LLM-DELEGATION-OPERATIONS.md).
 
+### D018 — LM Studio delegation disables hidden reasoning
+
+- Status: accepted
+- Decided: 2026-08-17, live MCP compatibility follow-up
+- Decision: Completion requests to backends using `lmstudio` discovery include
+  `reasoning_effort: "none"`. Generic `openai` discovery omits the field. The
+  adapter requires a non-empty public `message.content` and never substitutes
+  or exposes `reasoning_content` as the answer.
+- Failure behavior: an empty public answer returns
+  `UPSTREAM_PROTOCOL_ERROR` with only safe primitive details indicating the
+  finish reason and whether private reasoning was present. The response body
+  and reasoning text remain excluded from results and logs.
+- Rationale: the loaded Qwen3.6 model used all 250 requested completion tokens
+  as private reasoning, stopped with `finish_reason: "length"`, and returned
+  empty public content. The identical live request completed successfully when
+  LM Studio reasoning effort was `none`. This preserves the caller's bounded
+  final-answer budget and the product's rule that private reasoning is not an
+  output channel.
+
 ## Provisional defaults
 
 These values are safe starting points selected because the plan did not assign
@@ -313,11 +332,12 @@ deadline.
   executable with the absolute CLI path as its first argument, instead of
   relying on `#!/usr/bin/env node` and each host application's inherited
   `PATH`?
-- Current evidence: normal inherited host environments successfully ran MCP
-  delegation, while an intentionally stripped environment reached the server
-  but produced `UPSTREAM_PROTOCOL_ERROR`. The exact missing setting has not
-  been isolated, so the shebang/PATH concern is a portability risk rather than
-  a confirmed explanation for that error.
+- Current evidence: normal inherited host environments successfully launch and
+  reach the server. A later native-environment reproduction proved that one
+  `UPSTREAM_PROTOCOL_ERROR` came from a reasoning-only completion exhausting
+  its token limit, not from a missing environment setting. The earlier stripped
+  environment result therefore does not establish an environment dependency;
+  the shebang/PATH concern remains a launch portability risk only.
 - Evidence needed: spawned-protocol tests under the documented minimum safe
   environment, containing no secrets or raw environment logging; doctor checks
   for executable resolution and a writable state directory; and native-host

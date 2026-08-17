@@ -24,6 +24,7 @@ import {
   BACKEND_ORDER,
   ConfigurationError,
   DEFAULT_CONFIG,
+  classifyModel,
   loadConfig,
   normalizeLoopbackUrl,
 } from "../src/config.js";
@@ -205,6 +206,11 @@ describe("configuration", () => {
       rate_limit_requests: 60,
       rate_limit_window_ms: 60_000,
     });
+  });
+
+  it("classifies the current Qwen3.6 local profile as fast", () => {
+    expect(classifyModel(DEFAULT_CONFIG.backends.controller, "qwen3.6-35b")).toBe("fast");
+    expect(classifyModel(DEFAULT_CONFIG.backends.worker, "qwen3.6-35b")).toBe("fast");
   });
 
   it("deep-merges partial files, then env, then invocation overrides", async () => {
