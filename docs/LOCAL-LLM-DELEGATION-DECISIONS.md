@@ -215,14 +215,16 @@ Status values are `accepted`, `provisional`, `superseded`, and `open`.
 - Network boundary: the subprocess must run in the same native macOS network
   context as LM Studio for `127.0.0.1` to identify the Mac host. A sandbox,
   container, remote workspace, or remote executor may have a different
-  loopback interface and is not a valid live-test context unless explicitly
-  bridged and allowed by the configuration contract.
+  loopback interface and is not a valid live-test context for version 1.
 - Rationale: stdio clients own the child process and its protocol pipes. A
   separately daemonized process cannot share those pipes, while a native child
   can make the required read-only loopback requests without introducing an
   inbound HTTP service. A shared `launchd` service would require a future
   Streamable HTTP design and its accompanying authentication and exposure
   decisions.
+- Operator contract: the canonical commands and troubleshooting sequence are
+  maintained in
+  [`LOCAL-LLM-DELEGATION-OPERATIONS.md`](LOCAL-LLM-DELEGATION-OPERATIONS.md).
 
 ## Provisional defaults
 

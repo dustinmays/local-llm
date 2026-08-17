@@ -66,6 +66,21 @@ logs are newline-delimited JSON on stderr.
 ./dist/cli.js serve --workspace-root "$PWD"
 ```
 
+The command is a client-owned stdio subprocess, not a persistent network
+daemon. A manual launch waits silently for MCP input; normally Codex, Claude,
+Copilot, or VS Code starts and stops one child per session. Do not install it
+under `launchd`. The child opens no inbound port and makes read-only HTTP calls
+to the configured model endpoint.
+
+Live MCP hosts and direct live checks must run in the same native macOS network
+context as LM Studio. A container, Remote SSH workspace, cloud executor, or
+network-restricted sandbox has its own `127.0.0.1` and may report a false
+`BACKEND_UNAVAILABLE`. Run the server natively on the Mac and leave remote MCP
+execution disabled. See the
+[operations guide](docs/LOCAL-LLM-DELEGATION-OPERATIONS.md) for the complete
+runtime model, host management commands, MCP Inspector usage, and
+troubleshooting flow.
+
 ### Configure Codex, Claude, Copilot CLI, or VS Code
 
 Host configuration is project-local and review-first. Build once, preview the
@@ -83,7 +98,11 @@ exact proposed file, then add `--apply` only after reviewing it:
 The targets are `.codex/config.toml`, the root `.mcp.json` shared by Claude
 Code and Copilot CLI, and `.vscode/mcp.json`. Every entry runs the canonical
 absolute `dist/cli.js` with `serve --workspace-root` and the canonical absolute
-repository path. Existing unrelated servers and top-level fields are preserved.
+repository path. The current executable uses `#!/usr/bin/env node`, so the host
+application's inherited `PATH` must resolve the pinned Node 24 runtime. Absolute
+Node invocation and minimum-environment diagnostics are tracked compatibility
+hardening rather than a completed contract. Existing unrelated servers and
+top-level fields are preserved.
 Applying an already-current entry makes no write and no backup. A changed
 existing file is copied first to `FILE.backup-<UTC timestamp>`, then replaced
 atomically. Configuration paths containing symlinks are rejected.
@@ -103,6 +122,17 @@ executables that are not installed; configure every installed host first.
 `doctor --workspace-root "$PWD"` reports installed/configured host pairs as
 pass, warn, or skip without changing them.
 
+For interactive protocol debugging, let the official MCP Inspector launch and
+own the stdio child:
+
+```bash
+mise exec -- pnpm dlx @modelcontextprotocol/inspector -- \
+  ./dist/cli.js serve --workspace-root "$PWD"
+```
+
+The first Inspector run may download its package and is not part of the offline
+test gate.
+
 To remove the integration, delete only the `local-mlx-delegate` table from
 `.codex/config.toml` or the named object from `mcpServers`/`servers` in the
 corresponding JSON file. Do not use a host's user-scope remove command for this
@@ -115,7 +145,8 @@ The tracked `.agents/skills/local-mlx-delegate` skill, `CLAUDE.md`, and
 `.github/copilot-instructions.md` provide optional routing advice. MCP
 discovery, schemas, path safety, coordination, and lifecycle restrictions do
 not depend on those files. Remotely hosted agents cannot reach these loopback
-stdio services; this integration is for clients running on the Mac.
+backend endpoints; this integration is for MCP clients that spawn the stdio
+server natively on the Mac.
 
 The built-in endpoints and resource groups are:
 

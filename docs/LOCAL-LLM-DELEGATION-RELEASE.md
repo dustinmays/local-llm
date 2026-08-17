@@ -19,6 +19,36 @@ strict version-1 JSON under the gitignored `artifacts/delegate/` directory by
 default. Set `LOCAL_MLX_DELEGATE_EVIDENCE_DIR` to select another local
 directory.
 
+## Required execution context
+
+Run every live command and native-host check in the same native macOS network
+context as its selected backend. The server uses stdio for MCP protocol traffic
+but makes HTTP requests to loopback endpoints. A container, Remote SSH
+workspace, cloud executor, or agent-shell network sandbox has a different
+`127.0.0.1` and can falsely report `BACKEND_UNAVAILABLE` even while LM Studio is
+healthy on the Mac.
+
+Before recording evidence for a profile, verify it from a normal native
+terminal:
+
+```bash
+./dist/cli.js status --backend controller --json
+./dist/cli.js doctor --backend controller --workspace-root "$PWD" --json
+```
+
+Use `worker` or `cluster` for the other profiles. Then invoke status through
+the actual native MCP host. Do not qualify a profile using only a sandboxed
+shell result. Do not run the stdio server with `launchd`; Codex, Claude,
+Copilot, VS Code, or the official SDK client must launch and own its process.
+See the [operations guide](LOCAL-LLM-DELEGATION-OPERATIONS.md) for host-specific
+management and troubleshooting.
+
+For LM Studio profiles, require the intended generative model to appear in
+`loaded_models`. Entries present only in the sanitized `models` catalog may be
+downloaded-but-unloaded JIT candidates or embeddings and do not qualify the
+profile. The live probe must remain limited to `/health`, `/v1/models`, and
+`/api/v1/models` before an explicitly requested delegation.
+
 ## Evidence contract
 
 Evidence records the commit, package/runtime versions, selected profile,
@@ -93,6 +123,18 @@ never applied by the behavior task:
 ./dist/cli.js configure vscode --workspace-root "$PWD" --apply
 mise run delegate:host-smoke
 ```
+
+Run each host natively on the Mac. Do not use Codex remote MCP execution, a VS
+Code Remote SSH/dev-container workspace entry, or an MCP sandbox that blocks
+the selected loopback port. Each host starts its own stdio child, so multiple
+`dist/cli.js serve` processes during this gate are expected.
+
+Generated entries currently execute the absolute `dist/cli.js`, whose
+`#!/usr/bin/env node` shebang requires the host's inherited `PATH` to resolve
+the pinned Node 24 runtime. Restart GUI hosts after changing the runtime
+environment. Absolute Node invocation and minimum-environment tests remain a
+tracked compatibility follow-up; do not retain raw `PATH`, home-directory, or
+other environment values as evidence.
 
 If a native executable is outside the task's `PATH`, set one of
 `LOCAL_MLX_DELEGATE_CODEX_COMMAND`, `LOCAL_MLX_DELEGATE_CLAUDE_COMMAND`, or
