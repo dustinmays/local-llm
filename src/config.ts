@@ -89,6 +89,7 @@ export const BackendDefinitionSchema = z
     enabled: z.boolean(),
     url: LoopbackUrlSchema,
     model_discovery: ModelDiscoverySchema,
+    context_window_tokens: z.number().int().min(1_024).max(1_000_000),
     resource_groups: z
       .array(z.string().min(1).max(128))
       .min(1)
@@ -226,7 +227,7 @@ export const DEFAULT_CONFIG: DelegateConfig = DelegateConfigSchema.parse({
     heartbeat_interval_ms: 2_000,
     lease_ttl_ms: 10_000,
     cooldown_ms: 30_000,
-    queue_capacity: 32,
+    queue_capacity: 8,
     queue_poll_interval_ms: 50,
     rate_limit_requests: 60,
     rate_limit_window_ms: 60_000,
@@ -236,6 +237,7 @@ export const DEFAULT_CONFIG: DelegateConfig = DelegateConfigSchema.parse({
       enabled: true,
       url: "http://127.0.0.1:1234/v1",
       model_discovery: "lmstudio",
+      context_window_tokens: 32_768,
       resource_groups: ["controller"],
       startup_hint: DEFAULT_STARTUP_HINTS.controller,
       model_quality: {
@@ -254,6 +256,7 @@ export const DEFAULT_CONFIG: DelegateConfig = DelegateConfigSchema.parse({
       enabled: true,
       url: "http://127.0.0.1:1235/v1",
       model_discovery: "lmstudio",
+      context_window_tokens: 32_768,
       resource_groups: ["worker"],
       startup_hint: DEFAULT_STARTUP_HINTS.worker,
       model_quality: {
@@ -272,6 +275,7 @@ export const DEFAULT_CONFIG: DelegateConfig = DelegateConfigSchema.parse({
       enabled: true,
       url: "http://127.0.0.1:8080/v1",
       model_discovery: "openai",
+      context_window_tokens: 32_768,
       resource_groups: ["controller", "worker"],
       startup_hint: DEFAULT_STARTUP_HINTS.cluster,
       model_quality: {
@@ -331,6 +335,7 @@ function mergeFile(
       enabled: overlay.enabled ?? base.enabled,
       url: overlay.url ?? base.url,
       model_discovery: overlay.model_discovery ?? base.model_discovery,
+      context_window_tokens: overlay.context_window_tokens ?? base.context_window_tokens,
       resource_groups: overlay.resource_groups ?? base.resource_groups,
       startup_hint: overlay.startup_hint ?? base.startup_hint,
       model_quality: {

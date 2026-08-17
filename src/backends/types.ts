@@ -24,6 +24,17 @@ export type CompletionRequest = {
   signal?: AbortSignal;
 };
 
+export type CompletionUsage = {
+  promptTokens: number | null;
+  completionTokens: number | null;
+  totalTokens: number | null;
+};
+
+export type CompletionResult = {
+  answer: string;
+  usage: CompletionUsage;
+};
+
 export type CompletionAdapter = {
-  complete(request: CompletionRequest): Promise<string>;
+  complete(request: CompletionRequest): Promise<CompletionResult>;
 };

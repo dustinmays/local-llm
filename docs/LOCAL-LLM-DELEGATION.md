@@ -337,6 +337,13 @@ max_input_chars: integer = 120000
 max_output_tokens: integer = 4096
 ```
 
+`max_input_chars` remains a caller-facing cap, but context packing also uses
+the selected backend's configured `context_window_tokens`. The delegate
+reserves the requested output plus a 10% (minimum 1,024-token) safety margin
+before collecting source. Since the MCP does not own every backend tokenizer,
+preflight uses a conservative two UTF-8 bytes-per-token estimate and reports
+the estimate separately from upstream usage when available.
+
 Output:
 
 ```text
@@ -353,6 +360,11 @@ context_manifest[]
 elapsed_seconds
 queue_seconds
 input_characters
+context_window_tokens
+prompt_tokens_estimate
+prompt_tokens_actual
+completion_tokens_actual
+context_utilization_percent
 truncated
 warnings[]
 error
@@ -498,6 +510,9 @@ Protect physical resources with named resource groups:
 - cluster also reserves the worker resource group;
 - an independent worker uses the worker resource group; and
 - default to one generation at a time per physical host.
+
+The default queue capacity is eight requests. This bounds backlog without
+mistaking a large queue for available model memory.
 
 ### Shared availability coordinator
 

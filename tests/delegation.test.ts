@@ -91,7 +91,10 @@ async function startInference(
           response.end('{"private":"upstream body"}');
         } else {
           response.end(
-            JSON.stringify({ choices: [{ message: { content: "Candidate finding" } }] }),
+            JSON.stringify({
+              choices: [{ message: { content: "Candidate finding" } }],
+              usage: { prompt_tokens: 321, completion_tokens: 12, total_tokens: 333 },
+            }),
           );
         }
       });
@@ -167,6 +170,9 @@ describe("safe delegation pipeline", () => {
         actual_quality: "fast",
         answer: "Candidate finding",
         queue_seconds: 0,
+        context_window_tokens: 32_768,
+        prompt_tokens_actual: 321,
+        completion_tokens_actual: 12,
       });
       expect(result.context_manifest).toHaveLength(1);
       expect(result.context_manifest[0]).toMatchObject({
@@ -331,6 +337,56 @@ describe("safe delegation pipeline", () => {
         input(root, { task: "x".repeat(950), max_input_chars: 1_000 }),
       );
       expect(oversized.error?.code).toBe("INPUT_LIMIT_EXCEEDED");
+      expect(upstream.requests.filter((request) => request.method === "POST")).toHaveLength(0);
+    } finally {
+      await upstream.close();
+    }
+  });
+
+  it("reserves output and safety capacity while packing context against a token budget", async () => {
+    const model = "fixture-fast-model";
+    const upstream = await startInference(model);
+    const { root, path } = await fixture();
+    await writeFile(path, "x".repeat(20_000), "utf8");
+    const value = config(root, upstream, model);
+    value.backends.controller.context_window_tokens = 4_096;
+    try {
+      const result = await (
+        await service(value)
+      ).delegate(input(root, { max_input_chars: 120_000, max_output_tokens: 512 }));
+      expect(result).toMatchObject({
+        ok: true,
+        context_window_tokens: 4_096,
+        prompt_tokens_actual: 321,
+        completion_tokens_actual: 12,
+      });
+      expect(result.truncated).toBe(true);
+      expect(result.prompt_tokens_estimate + 512).toBeLessThanOrEqual(4_096 - 1_024);
+      expect(result.context_utilization_percent).toBeLessThanOrEqual(100);
+      expect(JSON.stringify(upstream.completionBodies[0])).not.toContain("x".repeat(20_000));
+    } finally {
+      await upstream.close();
+    }
+  });
+
+  it("rejects an output budget that cannot leave a safe prompt reservation", async () => {
+    const model = "fixture-fast-model";
+    const upstream = await startInference(model);
+    const { root } = await fixture();
+    const value = config(root, upstream, model);
+    value.backends.controller.context_window_tokens = 4_096;
+    try {
+      const result = await (
+        await service(value)
+      ).delegate(input(root, { max_output_tokens: 3_100 }));
+      expect(result).toMatchObject({
+        ok: false,
+        context_window_tokens: 4_096,
+        error: {
+          code: "INPUT_LIMIT_EXCEEDED",
+          details: { context_window_tokens: 4_096, max_output_tokens: 3_100 },
+        },
+      });
       expect(upstream.requests.filter((request) => request.method === "POST")).toHaveLength(0);
     } finally {
       await upstream.close();

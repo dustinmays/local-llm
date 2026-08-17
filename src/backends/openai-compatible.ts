@@ -3,7 +3,13 @@ import https from "node:https";
 import type { ClientRequest, IncomingMessage } from "node:http";
 import { performance } from "node:perf_hooks";
 import { z } from "zod";
-import type { BackendProbe, CompletionAdapter, CompletionRequest, ProbeRequest } from "./types.js";
+import type {
+  BackendProbe,
+  CompletionAdapter,
+  CompletionRequest,
+  CompletionResult,
+  ProbeRequest,
+} from "./types.js";
 import type { ConfiguredBackendStatus, ModelMetadata, StableErrorCode } from "../contracts.js";
 import { stableError, UpstreamError } from "../errors.js";
 
@@ -45,6 +51,13 @@ const CompletionResponseSchema = z.object({
       }),
     )
     .min(1),
+  usage: z
+    .looseObject({
+      prompt_tokens: z.number().int().nonnegative().optional(),
+      completion_tokens: z.number().int().nonnegative().optional(),
+      total_tokens: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
 });
 
 type RequestFailureKind = "connection" | "timeout" | "protocol";
@@ -422,7 +435,7 @@ export class OpenAiCompatibleProbe implements BackendProbe {
 }
 
 export class OpenAiCompatibleCompletionAdapter implements CompletionAdapter {
-  async complete(request: CompletionRequest): Promise<string> {
+  async complete(request: CompletionRequest): Promise<CompletionResult> {
     const body = Buffer.from(
       JSON.stringify({
         model: request.model,
@@ -526,6 +539,13 @@ export class OpenAiCompatibleCompletionAdapter implements CompletionAdapter {
         ),
       );
     }
-    return choice.message.content;
+    return {
+      answer: choice.message.content,
+      usage: {
+        promptTokens: parsed.data.usage?.prompt_tokens ?? null,
+        completionTokens: parsed.data.usage?.completion_tokens ?? null,
+        totalTokens: parsed.data.usage?.total_tokens ?? null,
+      },
+    };
   }
 }

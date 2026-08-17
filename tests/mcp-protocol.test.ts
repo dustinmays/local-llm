@@ -136,7 +136,10 @@ describe("MCP SDK integration", () => {
         completions += 1;
         expect(request.model).toBe("controller-model");
         expect(request.maxOutputTokens).toBe(123);
-        return Promise.resolve("In-memory advice");
+        return Promise.resolve({
+          answer: "In-memory advice",
+          usage: { promptTokens: null, completionTokens: null, totalTokens: null },
+        });
       },
     };
     const config: DelegateConfig = structuredClone(DEFAULT_CONFIG);

@@ -185,7 +185,7 @@ LLMs and embedding models.
     "heartbeat_interval_ms": 2000,
     "lease_ttl_ms": 10000,
     "cooldown_ms": 30000,
-    "queue_capacity": 32,
+    "queue_capacity": 8,
     "queue_poll_interval_ms": 50,
     "rate_limit_requests": 60,
     "rate_limit_window_ms": 60000
@@ -195,6 +195,7 @@ LLMs and embedding models.
       "enabled": true,
       "url": "http://127.0.0.1:1234/v1",
       "model_discovery": "lmstudio",
+      "context_window_tokens": 32768,
       "model_quality": {
         "fast": ["qwen3-coder-30b-a3b-instruct@4bit"],
         "deep": ["qwen3-coder-30b-a3b-instruct@8bit"]

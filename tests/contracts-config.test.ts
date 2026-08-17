@@ -180,6 +180,11 @@ describe("public contracts", () => {
         elapsed_seconds: 0,
         queue_seconds: 0,
         input_characters: 0,
+        context_window_tokens: null,
+        prompt_tokens_estimate: 0,
+        prompt_tokens_actual: null,
+        completion_tokens_actual: null,
+        context_utilization_percent: null,
         truncated: false,
         warnings: [],
         error: stableError("INVALID_WORKSPACE"),
@@ -202,7 +207,7 @@ describe("configuration", () => {
       heartbeat_interval_ms: 2_000,
       lease_ttl_ms: 10_000,
       cooldown_ms: 30_000,
-      queue_capacity: 32,
+      queue_capacity: 8,
       rate_limit_requests: 60,
       rate_limit_window_ms: 60_000,
     });
@@ -224,6 +229,7 @@ describe("configuration", () => {
           enabled: false,
           url: "http://localhost:4321/v1/",
           model_discovery: "openai",
+          context_window_tokens: 65_536,
           model_quality: { deep: ["custom-deep"] },
         },
       },
@@ -249,6 +255,7 @@ describe("configuration", () => {
     expect(config.backends.controller.enabled).toBe(true);
     expect(config.backends.controller.url).toBe("http://127.0.0.1:9876/v1");
     expect(config.backends.controller.model_discovery).toBe("lmstudio");
+    expect(config.backends.controller.context_window_tokens).toBe(65_536);
     expect(config.backends.controller.resource_groups).toEqual(["controller"]);
     expect(config.backends.controller.model_quality.deep).toEqual(["custom-deep"]);
     expect(config.backends.controller.model_quality.fast).toEqual(
