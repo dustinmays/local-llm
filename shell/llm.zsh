@@ -1,97 +1,57 @@
-# local-llm shell helpers — MLX daily driver.
+# local-llm shell helpers — terminal chat/ask against local models.
 # Source this from ~/.zshrc:  source ~/repos/local-llm/shell/llm.zsh
 #
-# Serving engine: LM Studio (`lms`), which holds the model warm with idle auto-evict.
-# Command frontend: Simon Willison's `llm` CLI (one-shots, pipes, logging).
-#   * WARM  — `llm-serve` starts LM Studio's server; queries are instant.
-#   * COLD  — server down; `ask`/`chat` fall back to in-process mlx-lm (~3s load). Still works.
+# Serving:   LM Studio holds the models warm. Start the server + load a model
+#            from the LM Studio app (or `lms load`). These helpers do NOT manage
+#            model lifecycle — they just talk to whatever LM Studio is serving.
+# Frontend:  Simon Willison's `llm` CLI (one-shots, pipes, interactive chat, logging),
+#            pointed at LM Studio's OpenAI endpoint via extra-openai-models.yaml.
 #
-# Model swapping:
-#   warm path  -> load a new model in LM Studio and update model_name in
-#                 "~/Library/Application Support/io.datasette.llm/extra-openai-models.yaml"
-#   cold path  -> llm mlx download-model <repo>; llm aliases set coder-fast <repo>
+# Models (see ~/Library/Application Support/io.datasette.llm/extra-openai-models.yaml):
+#   gemma -> google/gemma-4-e4b   (fast, snappy — default for ask/chat)
+#   muse  -> meta/muse-glimmer    (heavier reasoning — askhq/chathq/review)
 
 LOCAL_LLM_DIR="$HOME/repos/local-llm"
 export LLM_BIN="$LOCAL_LLM_DIR/.venv/bin/llm"
 export LMS_BIN="$HOME/.lmstudio/bin/lms"
 export LLM_SERVE_PORT=1234
-export LLM_SERVE_MODEL="qwen3-coder-30b-a3b-instruct@4bit"
-export LLM_SERVE_MODEL_HQ="qwen3-coder-30b-a3b-instruct@8bit"
-# Context length per model. Big enough for opencode (system prompt + tools + files).
-# KV cache is ~96 KB/token, so total RAM = weights + ctx*96KB. Kept within 48 GB:
-#   4-bit: 17 GB + 128K ctx (12.9 GB) = ~30 GB
-#   8-bit: 32 GB +  64K ctx (6.4 GB)  = ~38 GB  (raise only for dedicated/overnight runs)
-export LLM_SERVE_CTX=131072
-export LLM_SERVE_CTX_HQ=65536
+export LLM_MODEL="gemma"      # default fast model for ask/chat
+export LLM_MODEL_HQ="muse"    # heavier reasoning model for askhq/chathq/review
 
-# Small, fast model for dictation cleanup (Whisper transcript -> fluent prose).
-# ~2.3 GB, co-resides easily alongside the 30B coder model — no eviction needed.
-export LLM_DICTATE_MODEL="qwen3-4b-instruct-2507"
-export LLM_DICTATE_CTX=8192
-
-# true if LM Studio's server is answering
-_llm_up() { curl -s -m 1 -o /dev/null "http://localhost:${LLM_SERVE_PORT}/v1/models" 2>/dev/null; }
-# which coder model is currently loaded (empty if none)
-_llm_loaded() { "$LMS_BIN" ps 2>/dev/null | grep -oE 'qwen3-coder-30b-a3b-instruct@[0-9]+bit' | head -1; }
-# ensure the wanted model ($1) is resident at context ($2). Evicts a different model first
-# (4-bit 17 GB + 8-bit 32 GB > 48 GB, can't co-reside); explicit load avoids LM Studio's
-# tiny 8K JIT default. Same-model-already-loaded stays warm (no reload).
-_llm_ensure() {
-  [ "$(_llm_loaded)" = "$1" ] && return 0
-  "$LMS_BIN" unload --all >/dev/null 2>&1
-  "$LMS_BIN" load "$1" -c "$2" --gpu max -y >/dev/null 2>&1
+# Warn (but don't block) if LM Studio's server isn't answering.
+_llm_check() {
+  curl -s -m 1 -o /dev/null "http://localhost:${LLM_SERVE_PORT}/v1/models" 2>/dev/null && return 0
+  print -u2 -P "%F{214}local-llm ›%f LM Studio server not responding on :${LLM_SERVE_PORT} — start it in the app (or: lms server start)."
+  return 1
 }
 
-llm-serve() {                              # start server + load the 4-bit daily driver @ big ctx
-  "$LMS_BIN" server start >/dev/null 2>&1
-  "$LMS_BIN" unload --all >/dev/null 2>&1
-  "$LMS_BIN" load "$LLM_SERVE_MODEL" -c "$LLM_SERVE_CTX" --gpu max -y 2>&1 | tail -1
-  _llm_up && echo "warm: 4-bit @ ${LLM_SERVE_CTX} ctx on http://localhost:${LLM_SERVE_PORT}" || echo "check: lms server status"
-}
-llm-serve-hq() {                           # load the 8-bit @ big ctx (for opencode/overnight)
-  "$LMS_BIN" server start >/dev/null 2>&1
-  "$LMS_BIN" unload --all >/dev/null 2>&1
-  "$LMS_BIN" load "$LLM_SERVE_MODEL_HQ" -c "$LLM_SERVE_CTX_HQ" --gpu max -y 2>&1 | tail -1
-  _llm_up && echo "warm: 8-bit @ ${LLM_SERVE_CTX_HQ} ctx on http://localhost:${LLM_SERVE_PORT}" || echo "check: lms server status"
-}
-llm-serve-stop()   { "$LMS_BIN" unload --all >/dev/null 2>&1; "$LMS_BIN" server stop 2>&1 | tail -1; }
-llm-serve-status() { "$LMS_BIN" server status 2>&1 | head -1; "$LMS_BIN" ps 2>&1 | tail -n +1; }
-
-# --- one-shots (auto warm/cold) --------------------------------------------
-# Fast daily driver.  Usage: ask "explain X"   |   cat f.py | ask "review"
-ask()   { if _llm_up; then _llm_ensure "$LLM_SERVE_MODEL" "$LLM_SERVE_CTX";       "$LLM_BIN" -m coder-live "$@";    else "$LLM_BIN" -m coder-fast "$@"; fi; }
-# High-quality 8-bit. Evicts the 4-bit first if it's loaded (they can't co-reside in 48 GB).
-askhq() { if _llm_up; then _llm_ensure "$LLM_SERVE_MODEL_HQ" "$LLM_SERVE_CTX_HQ"; "$LLM_BIN" -m coder-live-hq "$@"; else "$LLM_BIN" -m coder-hq "$@"; fi; }
+# --- one-shots -------------------------------------------------------------
+# Fast default.  Usage:  ask "explain X"   |   cat f.py | ask "review this"
+ask()   { _llm_check; "$LLM_BIN" -m "$LLM_MODEL"    "$@"; }
+# Heavier reasoning (Muse Glimmer).
+askhq() { _llm_check; "$LLM_BIN" -m "$LLM_MODEL_HQ" "$@"; }
 # Continue the LAST conversation.
 askc()  { "$LLM_BIN" -c "$@"; }
 
 # --- interactive chat ------------------------------------------------------
-chat()   { if _llm_up; then _llm_ensure "$LLM_SERVE_MODEL" "$LLM_SERVE_CTX";       "$LLM_BIN" chat -m coder-live "$@";    else "$LLM_BIN" chat -m coder-fast "$@"; fi; }
-chathq() { if _llm_up; then _llm_ensure "$LLM_SERVE_MODEL_HQ" "$LLM_SERVE_CTX_HQ"; "$LLM_BIN" chat -m coder-live-hq "$@"; else "$LLM_BIN" chat -m coder-hq "$@"; fi; }
+chat()   { _llm_check; "$LLM_BIN" chat -m "$LLM_MODEL"    "$@"; }
+chathq() { _llm_check; "$LLM_BIN" chat -m "$LLM_MODEL_HQ" "$@"; }
 
-# --- code review (8-bit + reviewer system prompt) --------------------------
+# --- code review (Muse + reviewer system prompt) ---------------------------
 # Usage:  git diff | review        |        review < path/to/file.py
 review() {
-  local m; if _llm_up; then _llm_ensure "$LLM_SERVE_MODEL_HQ" "$LLM_SERVE_CTX_HQ"; m=coder-live-hq; else m=coder-hq; fi
-  "$LLM_BIN" -m "$m" -s \
+  _llm_check
+  "$LLM_BIN" -m "$LLM_MODEL_HQ" -s \
     "You are a meticulous senior engineer doing a code review. Point out bugs, \
 edge cases, security issues, and unclear naming. Be specific and cite the \
 relevant snippet. If the code is fine, say so briefly." "$@"
 }
 
-# --- dictation cleanup (small 4B model, no eviction of the coder model) ----
-# which dictation model is currently loaded (empty if none)
-_llm_dictate_loaded() { "$LMS_BIN" ps 2>/dev/null | grep -oE 'qwen3-4b-instruct-2507(@[0-9]+bit)?' | head -1; }
-# load the dictation model without touching whatever else is resident —
-# it's ~2.3 GB and comfortably co-resides with the 30B coder model.
-_llm_dictate_ensure() {
-  [ "$(_llm_dictate_loaded)" = "$LLM_DICTATE_MODEL" ] && return 0
-  "$LMS_BIN" load "$LLM_DICTATE_MODEL" -c "$LLM_DICTATE_CTX" --gpu max -y >/dev/null 2>&1
-}
+# --- dictation cleanup (Whisper transcript -> fluent prose) ----------------
 # Usage:  pbpaste | dictate | pbcopy        |        dictate < transcript.txt
 dictate() {
-  local m; if _llm_up; then _llm_dictate_ensure; m=dictate-live; else m=dictate-fast; fi
-  "$LLM_BIN" -m "$m" -s \
+  _llm_check
+  "$LLM_BIN" -m "$LLM_MODEL" -s \
     "You clean up raw speech-to-text dictation into fluent, well-punctuated \
 prose. Fix punctuation, capitalization, and grammar. Remove filler words, \
 false starts, and verbal stutters. Preserve the speaker's meaning, tone, and \
@@ -104,5 +64,5 @@ llm-log() { "$LLM_BIN" logs -n "${1:-3}"; }   # show last N logged exchanges
 
 # --- new-terminal reminder (interactive shells only) -----------------------
 if [[ -o interactive ]]; then
-  print -P "%F{244}local-llm ›%f warm a model: %F{39}llm-serve%f (4-bit·128K)  %F{39}llm-serve-hq%f (8-bit·64K)%F{244}  —  then: ask · chat · review · dictate%f"
+  print -P "%F{244}local-llm ›%f %F{39}ask%f · %F{39}chat%f (gemma)  %F{39}askhq%f · %F{39}chathq%f · %F{39}review%f (muse)  %F{244}— models served by LM Studio%f"
 fi
