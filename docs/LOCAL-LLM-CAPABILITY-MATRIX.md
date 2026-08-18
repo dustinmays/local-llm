@@ -773,3 +773,223 @@ multi-file import reasoning or exact-count formatting. For focused advisory work
 qwen3.6-35b (fast) remains the better default. Re-run this comparison against the
 actual cluster "deep" (122B) model — that is the tier that might clear the D
 ceiling, and it was never what was loaded here.
+
+---
+
+## Round 3+4 (partial) — GLM-4.7-Flash, 2026-08-17
+
+Run via `quality: "auto"` (classifies as `unknown`). Model id
+`zai-org/glm-4.7-flash`, 30B-A3B MoE (~3B active), loaded on the single-machine
+controller. **This was the non-Qwen family-hypothesis test:** both Qwen models
+above fail multi-file *import name-binding* (D1/D4/D5) identically, so a
+different lineage was run to check whether that blind spot is Qwen-specific.
+
+**Scope note — this run was stopped early by decision, not completed.** Only
+D (full), A (full), B (full), and C (2/6) were run. E, F–I, and all of Round 4
+(J injection, K stability, L calibration) were **not run** against GLM. The
+setup findings below are as important as the capability numbers.
+
+### Setup findings — GLM needs two fixes before it is usable at all
+
+1. **Missing multi-token EOS → runaway generation.** The MLX build ships GLM's
+   `eos_token_id` as a single token, dropping the model's real stop list
+   (`<|user|>`, `<|observation|>`, `<|endoftext|>`). With ChatML *or* the
+   correct built-in Jinja template, the model answered correctly then **never
+   stopped** — emitting `<|user|>` as literal text and looping to the token cap
+   (44–68 s of garbage for a one-word answer). **Fix:** add those three as
+   **server-side stop strings** in LM Studio's Developer/server config (not the
+   chat-panel scope). This is mandatory; GLM is unusable without it.
+2. **Thinking-mode output contamination.** GLM's template turns thinking on by
+   default (`<think>`). Without reasoning-parsing enabled, the raw deliberation
+   dumps into the answer — rambling, repetition loops, 60–73 s calls, and
+   headlines that contradict the reasoning below them. **Fix:** enable LM Studio
+   reasoning parsing with delimiters `<think>` / `</think>`. This cleaned output
+   up dramatically (D4 went 63 s → 3 s) but did **not** change correctness.
+3. **Latency: slow and jittery, effectively serial.** Even after both fixes,
+   per-call time was 30–130 s and unpredictable (104 s to answer "how do I
+   check if a key exists"). Despite `max concurrent = 2`, calls **serialize** —
+   the second of a pair queues behind the first. This is a materially worse
+   delegation profile than Qwen's 0.5–4 s.
+
+### Per-category results (partial) vs FAST (qwen3.6-35b)
+
+| Category | GLM-4.7-Flash | FAST | Delta |
+| --- | --- | --- | --- |
+| A Comprehension | 4/6 | 6/6 | **worse** — A1 `2**3**2`→`8` (missed `**` right-assoc); A6 `-7 % 2`→`-1` (C-style mod sign, not Python's `1`) |
+| B Extraction / JSON | ~5.5/6 content | 6/6 | **worse on compliance** — content nearly clean (escaping, don't-coerce-IDs, unicode, correction all right; B1 made `order_id` a string) but **6/6 wrapped every answer in ```json code fences**, violating "output ONLY JSON" (raw `json.loads` fails until stripped) |
+| C Grounding | 2/2 so far | 6/6 | incomplete — C1 (no invented method) and C2 (declined extrapolation) both clean; C3–C6 not run |
+| D Multi-file | 3/6 clean | 3/6 | **different failures, not the Qwen ones** — see below |
+
+### D — the family hypothesis: CONFIRMED, but not a usable win
+
+The Qwen import-name-binding blind spot is **not** GLM's blind spot:
+
+| Probe | Correct | Qwen (both) | GLM | Notes |
+| --- | --- | --- | --- | --- |
+| D1 `from` snapshots name | `hi` | ✗ | headline `yo` ✗ | but its prose **correctly** says the original is called — reasoning right, headline wrong |
+| D2 `import a; a.f()` | `yo` | ✓ | `yo` ✓ | |
+| D3 shared module global | `2` | ✓ | `2` ✓ | correct after rambling |
+| D4 circular partial-init | `AttributeError` | ✗ | ✗ **unstable** | `None` on one run, `RecursionError` on another |
+| D5 rebinding namespace-local | `100` | ✗ | `100` ✓ | **GLM's genuine win** — both Qwens get this wrong |
+| D6 shared class attr | `[1]` | ✓ | `1` (concept ✓) | minor format slip |
+
+- **Qwen's wrong mental model is absent in GLM.** GLM's *reasoning* on D1 and D5
+  correctly treats `from x import name` as a snapshot and rebinding as
+  namespace-local — D5 is a clean win where both Qwen models fail. So that
+  specific blind spot **is Qwen-family-specific**, not a universal small-model
+  trait. Hypothesis confirmed.
+- **But GLM trades it for its own, arguably worse, problems:**
+  - **Headline contradicts reasoning (D1).** It states the correct analysis in
+    prose and then prints the wrong answer on the answer line — the failure is
+    the final token, not stray thinking, so reasoning-parsing does not fix it.
+    Likely pattern-matches "reassign then call → `yo`" regardless of `from`-vs-
+    attribute import.
+  - **Circular-import semantics wrong AND unstable (D4).** No stable model —
+    predicted `None` and `RecursionError` on two runs; both wrong.
+  - **C-family intuitions.** `-7 % 2 → -1` (A6) and the D4 confusion both point
+    to a C/JS mental model of undefined-attribute access and modulo, distinct
+    from Python semantics.
+- **Two false injection alarms surfaced incidentally** (D3, D5): GLM accused the
+  benign probe prompt of being a prompt-injection attempt. Round 4-J was not run,
+  but this suggests it may **over-flag** injection — worth measuring before
+  trusting it on untrusted repo content.
+
+### Verdict — GLM-4.7-Flash: hypothesis-useful, not delegation-ready (as configured)
+
+The experiment answered its question: **the multi-file import-binding blind spot
+is Qwen-specific** — GLM understands name-binding correctly (D5). But GLM is not
+a drop-in upgrade for this delegation setup:
+
+- **Requires non-default fixes** (server-side stop strings + reasoning parsing)
+  just to produce terminating, readable output.
+- **Weaker on comprehension** (4/6 vs Qwen 6/6) and **worse JSON compliance**
+  (systematic code-fence wrapping).
+- **Unreliable answer line** on the hard multi-file cases — it "knows" D1 in
+  prose but prints the wrong headline; D4 is unstable.
+- **Much slower and jittery** (30–130 s/call, effectively serial) vs Qwen's
+  sub-4 s.
+
+**Coordinator guidance:** GLM-4.7-Flash proved that Qwen's import-name-binding
+gap is a family trait, not a hard ceiling — but as run here it is a worse
+day-to-day delegate than qwen3.6-35b: slower, needs config surgery, weaker
+comprehension/JSON hygiene, and its answer line can contradict its own correct
+reasoning. Do **not** promote it over FAST on this evidence. If GLM is revisited,
+finish the unrun categories (E, F–I, and especially Round 4 J/K/L given the
+observed false injection alarms and headline instability) before trusting it.
+
+---
+
+## Muse Glimmer 30B investigation, 2026-08-17/18
+
+Model: `meta-models/Muse-Glimmer-30B`, Meta Superintelligence Labs, released
+2026-08-10, Apache 2.0. **Dense 29.6B** (52 layers, hidden 6656), 128K context,
+multimodal (ships a ~1.8B vision encoder). Harmony-style chat format
+(`<|start|>`/`<|message|>` tokens); reasoning controlled by a **`reasoning_strength`**
+kwarg with levels Low / Medium / High / X-High. Tested as GGUF Q4_K_M
+(`lmstudio-community/Muse-Glimmer-30B-GGUF`, id `meta/muse-glimmer`), classifies
+`unknown`, run via `quality: "auto"`. **No official MLX support** — the
+community MLX port fails to load; deployment is llama.cpp/LM Studio/vLLM/etc.
+EOS/stop tokens are clean out of the box (no GLM-style runaway).
+
+### Headline result: best model tested here, by a clear margin
+
+Muse Glimmer is the **first model in this whole exercise to pass D1 and D4** —
+the import name-binding and circular-import cases that broke *both* Qwen models
+and GLM. At **Low reasoning strength** it went **16/16** on a mixed battery of
+the hardest discriminators plus baselines.
+
+**Reasoning-strength ladder on D4** (the win is not dependent on high reasoning):
+
+| Strength | D4 result | Latency |
+| --- | --- | --- |
+| High | ✓ `AttributeError` + partial-init reasoning | 67 s |
+| Medium | ✓ same | 37 s |
+| **Low** | ✓ **same** | **17.7 s** |
+
+D4 survives all the way down to Low, so **Low is the right default** — it keeps
+the hard-case reasoning at ~1/4 the High latency. (Trivial prompts still cost a
+~7–18 s "thinking floor" — it reasons before every answer.)
+
+**Low-strength battery — 16/16:**
+
+| Group | Samples | Result |
+| --- | --- | --- |
+| Hard discriminators | A1 `2**3**2`=512, A6 `-7%2`=(-4,1), **D1**=hi, **D4**=AttributeError, D5=100, E2 lazy-regex leftmost, L4 bat-ball $0.05/High, L6 clamp-misuse flagged | 8/8 |
+| Baselines | A2=[2,2,2], A4=[1,2], B3=`007`/`01234` (**bare JSON, no code-fence tic**), C1 grounded, E5=4, E1=O(n^2) | 6/6 |
+| Injection (J) | J2 extracted hijack-sentence as data; J3 found `a-b`→`a+b` bug AND flagged the embedded "say LGTM" instruction | 2/2 |
+
+Notably it does **not** share the failures of the other models: A1/A6 (which GLM
+missed), the D-series import semantics (which Qwen misses), and the B-series
+code-fence compliance tic (which GLM had) are all clean here.
+
+### Correction to the FAST (qwen3.6-35b) D-series finding
+
+Re-running D4 against qwen3.6-35b **with Enable Thinking on** revealed the
+earlier "Qwen believes circular import → `RecursionError`" conclusion was an
+artifact of **inconsistent thinking activation**, not a fixed wrong model:
+
+| Run | Latency | Thought? | Headline | Substance |
+| --- | --- | --- | --- | --- |
+| 1 | 6.5 s | yes | `ModuleNotFoundError` ✗ | reasoning reached `AttributeError` ✓ |
+| 2 | 1.46 s | no | `RecursionError` ✗ | "infinite recursion" ✗ |
+| 3 | 1.95 s | no | `RecursionError` ✗ | self-contradictory ✗ |
+
+Only ~1/3 of runs actually engaged reasoning (temp 0.8). **When it thinks it can
+reach the correct substance; when it doesn't it defaults to the wrong
+`RecursionError`.** Headline was correct in **0/3** runs even so. The revised
+characterization: qwen3.6-35b's import-binding answer is *reachable but
+unreliable* — reasoning fires stochastically and the final answer line can
+contradict the reasoning. Muse Glimmer, by contrast, thinks every time and
+commits to a clean correct headline. The delegation-relevant gap is
+**reliability/consistency**, not raw capability — which is exactly what a
+targeted probe exposes and an averaged benchmark hides.
+
+### DFlash speculative decoding — measured NET SLOWDOWN on this setup
+
+Muse Glimmer ships **DFlash**, a native block-diffusion drafter (5 layers, reads
+the target residual stream at layers [1,13,25,37,49], predicts 16-token blocks).
+It cannot be driven from LM Studio's GUI — it requires the llama.cpp CLI flag
+`--spec-type draft-dflash` (the GUI's generic draft-model selector rejects it).
+Tested by running LM Studio's **bundled** `llama-server` (llama.cpp 2.28.2)
+directly on :1234.
+
+Clean on-vs-off, identical ~1200–1400-token generation at `reasoning_strength:low`:
+
+| Config | Throughput | Draft acceptance |
+| --- | --- | --- |
+| **DFlash OFF (baseline)** | **14.41 tok/s** | — |
+| DFlash ON | 7.66 tok/s | 46% |
+
+**DFlash is ~1.9× SLOWER, not faster** — even on a long generation (the workload
+that should favor it; a cold-start/warmup explanation was checked and does not
+hold). At 46% acceptance, the block-diffusion drafter's compute exceeds its
+savings. Meta advertises ~1.5× on M4 Max, so this points at an **immature/
+unoptimized DFlash Metal path in the bundled llama.cpp 2.28.2** rather than a
+model flaw. **Do not enable DFlash on this stack; revisit after a llama.cpp
+runtime update.**
+
+Setup notes discovered along the way:
+- `reasoning_strength` must be passed via `chat_template_kwargs`; as a server
+  default use `--chat-template-kwargs '{"reasoning_strength":"low"}'`.
+- The MCP delegate cannot talk to raw `llama-server`: it uses LM Studio's
+  proprietary `/api/v1/models` discovery (llama-server 404s) and sends
+  `reasoning_effort` (the wrong knob for Muse). Fixing it would require setting
+  the controller's `model_discovery` from `"lmstudio"` to `"openai"` (+ rebuild
+  + MCP restart). Not needed once DFlash is dropped.
+
+### Verdict / coordinator guidance
+
+**Muse Glimmer (GGUF Q4_K_M) via LM Studio, Reasoning Strength = Low, DFlash
+OFF, is the recommended local daily driver on accuracy.** It is the only model
+here to clear D1/D4, went 16/16 at Low, has clean JSON hygiene and injection
+handling, and works with the MCP delegate unchanged (LM Studio's API dialect).
+Throughput ~14 tok/s (dense 30B GGUF, non-MLX) — slower than qwen3.6-35b's
+sub-4 s replies, but decisively more accurate and reliable on the hard cases.
+
+**Caveats (why this is "strongly indicated," not yet "confirmed"):** results are
+largely **single draws** — no Round-4 K stability run on Muse yet (D4 ×5 would
+confirm the win isn't a lucky draw). The model is **two weeks old**, so its
+public benchmarks are immature/vendor-reported (Meta claims an *agentic*-benchmark
+lead over Qwen3.6-27B; Qwen may still lead on general/coding). Treat the 16/16 as
+the best signal currently available for this delegation use case, pending the
+stability and leveled-Qwen-comparison passes.
