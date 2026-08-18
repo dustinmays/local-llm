@@ -1,0 +1,57 @@
+Capability-matrix long-context retrieval fixture.
+
+This file exists to test whether a delegated local model can retrieve a single
+planted fact buried inside a larger body of otherwise irrelevant filler text.
+The runner asks only: "what is the value of MAGIC_TOKEN?" The correct answer is
+pinned below and must not be changed once runs have started, or the answer key
+drifts.
+
+--- filler begins ---
+
+The maintenance window opens on the first Tuesday of each month. Operators are
+expected to drain the queue before applying updates, and to confirm that the
+dead-letter queue is empty before proceeding. Retries use exponential backoff
+with a ceiling of three attempts. Jobs that exhaust their retries are parked for
+manual review. None of this is relevant to the question being asked; it is here
+only to add distance between the start of the file and the planted value.
+
+The provisioning script reads its configuration from a loopback-only endpoint.
+It never exposes the service to the wider network, and it refuses to start if a
+non-loopback bind address is supplied. Health checks run every two seconds, and
+a lease is considered stale after ten seconds without a heartbeat. Cooldown
+after a failed lease is thirty seconds. These numbers are illustrative and are
+not the value being sought.
+
+Documentation for the ingestion pipeline describes five stages: intake,
+validation, normalization, enrichment, and storage. Each stage emits structured
+telemetry. The enrichment stage is the most expensive and is the usual suspect
+when latency rises. Engineers are reminded to check the enrichment stage first
+before assuming the model server is at fault. This paragraph, too, is filler.
+
+A note on style: prose in this fixture is deliberately bland and repetitive so
+that no sentence stands out on surface features alone. A model that simply
+echoes the most vivid sentence will fail, because the planted value is stated
+plainly and without emphasis, surrounded by equally plain sentences.
+
+MAGIC_TOKEN = "velvet-harbor-3391"
+
+The remainder of the file continues the pattern of unrelated operational notes.
+Backups are written nightly and verified weekly. Restores are rehearsed once per
+quarter. Access to the backup bucket is limited to two named operators, and all
+access is logged. Log retention is ninety days. Again, none of these figures is
+the planted value; they are decoys chosen to look plausible.
+
+The scheduler supports both interval and cron-style triggers. Interval triggers
+are clamped to a minimum of sixty seconds. Cron triggers are evaluated in the
+host's local timezone unless an explicit timezone is supplied. Missed triggers
+are not backfilled by default. A configuration flag can enable backfill for a
+bounded lookback window, but this is discouraged in production.
+
+Capacity planning assumes a steady-state load with occasional bursts. The system
+is sized for the ninety-fifth percentile of historical demand, with headroom for
+short spikes. When sustained demand exceeds the provisioned capacity, the queue
+depth grows and the oldest jobs are shed according to the configured policy.
+Operators receive an alert when queue depth crosses a warning threshold.
+
+This concludes the filler. The only fact a runner should extract from this file
+is the value assigned to MAGIC_TOKEN above.
