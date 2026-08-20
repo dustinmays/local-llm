@@ -90,6 +90,12 @@ export const BackendDefinitionSchema = z
     url: LoopbackUrlSchema,
     model_discovery: ModelDiscoverySchema,
     context_window_tokens: z.number().int().min(1_024).max(1_000_000),
+    // Per-model context budgets (model id -> tokens). Overrides context_window_tokens
+    // for that model; falls back to context_window_tokens when a model isn't listed.
+    // Needed when several models share one backend at different loaded context sizes.
+    context_window_overrides: z
+      .record(z.string().min(1).max(1_024), z.number().int().min(1_024).max(1_000_000))
+      .optional(),
     resource_groups: z
       .array(z.string().min(1).max(128))
       .min(1)
@@ -158,6 +164,13 @@ export function classifyModel(definition: BackendDefinition, modelId: string): Q
   if (definition.model_quality.fast.includes(modelId)) return "fast";
   if (definition.model_quality.deep.includes(modelId)) return "deep";
   return "unknown";
+}
+
+// Context budget the delegate assumes for a given loaded model. Must not exceed
+// the context the model is actually loaded with in the serving engine (e.g. LM
+// Studio's -c), or prompts can silently overflow the real window.
+export function contextWindowForModel(definition: BackendDefinition, modelId: string): number {
+  return definition.context_window_overrides?.[modelId] ?? definition.context_window_tokens;
 }
 
 const BackendFileOverlaySchema = BackendDefinitionSchema.omit({ model_quality: true })
@@ -240,6 +253,13 @@ export const DEFAULT_CONFIG: DelegateConfig = DelegateConfigSchema.parse({
       context_window_tokens: 32_768,
       resource_groups: ["controller"],
       startup_hint: DEFAULT_STARTUP_HINTS.controller,
+      // Keep each value at or below the context the model is actually loaded
+      // with in LM Studio (its -c), or prompts silently overflow the real window.
+      // Muse loaded at >=90K, Gemma at >=32K.
+      context_window_overrides: {
+        "meta/muse-glimmer": 90_000,
+        "google/gemma-4-e4b": 32_768,
+      },
       model_quality: {
         fast: [
           "qwen3-coder-30b-a3b-instruct@4bit",
@@ -338,6 +358,8 @@ function mergeFile(
       url: overlay.url ?? base.url,
       model_discovery: overlay.model_discovery ?? base.model_discovery,
       context_window_tokens: overlay.context_window_tokens ?? base.context_window_tokens,
+      context_window_overrides:
+        overlay.context_window_overrides ?? base.context_window_overrides,
       resource_groups: overlay.resource_groups ?? base.resource_groups,
       startup_hint: overlay.startup_hint ?? base.startup_hint,
       model_quality: {

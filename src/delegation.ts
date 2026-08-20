@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { CompletionAdapter } from "./backends/types.js";
 import { OpenAiCompatibleCompletionAdapter } from "./backends/openai-compatible.js";
-import { classifyModel, type DelegateConfig } from "./config.js";
+import { classifyModel, contextWindowForModel, type DelegateConfig } from "./config.js";
 import {
   collectContext,
   estimateTokens,
@@ -300,8 +300,10 @@ export class DelegationService {
       if (!("backendStatus" in selected)) return failure(selected);
       selection = selected;
       warnings = [...selected.warnings];
-      contextWindowTokens =
-        this.config.backends[selection.backendStatus.backend].context_window_tokens;
+      contextWindowTokens = contextWindowForModel(
+        this.config.backends[selection.backendStatus.backend],
+        selection.model.id,
+      );
       const safetyMarginTokens = Math.max(1_024, Math.ceil(contextWindowTokens * 0.1));
       const maximumPromptTokens =
         contextWindowTokens - input.max_output_tokens - safetyMarginTokens;
