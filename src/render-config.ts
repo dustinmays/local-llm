@@ -73,7 +73,7 @@ function renderExtraOpenaiModelsYaml(): string {
     hashNotice,
     "#",
     "# Deploy to: ~/Library/Application Support/io.datasette.llm/extra-openai-models.yaml",
-    "# Tells the `llm` CLI how to reach the models LM Studio serves on the controller.",
+    "# Tells the `llm` CLI how to reach the models served on the controller endpoint.",
   ];
   const apiBase = baseUrl("controller");
   for (const { alias, modelId } of llmCliModels()) {
