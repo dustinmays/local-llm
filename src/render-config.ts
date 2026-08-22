@@ -55,7 +55,6 @@ function renderOpencodeJson(): string {
   };
   const defaultModel = opencodeDefault("omlx");
   const config = {
-    "//": GENERATED_LINE,
     $schema: "https://opencode.ai/config.json",
     provider: {
       omlx: provider("omlx", "oMLX (local MLX)", "controller", "omlx-local"),
