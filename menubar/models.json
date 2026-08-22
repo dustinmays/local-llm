@@ -18,7 +18,7 @@
       "backends": [
         "controller"
       ],
-      "contextTokens": 32768,
+      "contextTokens": 131072,
       "llmAlias": "qwen",
       "role": "daily-hq",
       "inference": {

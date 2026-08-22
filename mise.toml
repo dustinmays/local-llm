@@ -7,6 +7,19 @@ pnpm = "11.22.0"
 
 [env]
 _.python.venv = { path = ".venv", create = true }
+OPENCODE_ENABLE_EXA = "1"
+
+[tasks."opencode:websearch"]
+description = "Enable OpenCode web search and fetch tools"
+run = '''
+echo "OpenCode websearch/webfetch permissions are enabled by default in config/opencode.json."
+echo ""
+echo "To use Exa web search, ensure OPENCODE_ENABLE_EXA is set in your shell:"
+echo '  echo '"'"'export OPENCODE_ENABLE_EXA=1'"'"' >> ~/.zshrc'
+echo ""
+echo "Your mise environment already sets OPENCODE_ENABLE_EXA=1 via mise.toml."
+echo "Run '"'"'mise x -- opencode'"'"' or '"'"'mise run opencode:install'"'"' to use it."
+'''
 
 [tasks.setup]
 description = "Install the pinned local MLX environment on this Mac"
