@@ -11,17 +11,33 @@ import {
 } from "./contracts.js";
 import { stableError } from "./errors.js";
 import { LogLevelValues } from "./logging.js";
+import {
+  BACKENDS,
+  backendContextOverrides,
+  backendModelQuality,
+  baseUrl,
+} from "./shared-config.js";
 
 export const BACKEND_ORDER = BackendNameSchema.options;
 export const CONFIG_SCHEMA_VERSION = 1 as const;
 
-const DEFAULT_STARTUP_HINTS: Record<BackendName, string> = {
-  controller: "Start the controller with llm-serve or llm-serve-hq.",
-  worker:
-    "Start worker LM Studio, then create the localhost port-1235 SSH tunnel to worker port 1234.",
-  cluster:
-    "Start the cluster with mise run cluster:start-fast or mise run cluster:start-overnight.",
-};
+// Build a backend definition from the shared source of truth (src/shared-config.ts)
+// so ports, endpoints, context windows, and fast/deep model lists live in exactly
+// one place. Zod (DelegateConfigSchema, below) remains the validation guard.
+function buildBackendDefinition(name: BackendName): Record<string, unknown> {
+  const spec = BACKENDS[name];
+  const overrides = backendContextOverrides(name);
+  return {
+    enabled: true,
+    url: baseUrl(name),
+    model_discovery: spec.discovery,
+    context_window_tokens: spec.contextTokens,
+    ...(overrides ? { context_window_overrides: overrides } : {}),
+    resource_groups: spec.resourceGroups,
+    startup_hint: spec.startupHint,
+    model_quality: backendModelQuality(name),
+  };
+}
 
 function isLoopbackHostname(hostname: string): boolean {
   const normalized = hostname.toLowerCase().replace(/^\[|\]$/g, "");
@@ -246,65 +262,9 @@ export const DEFAULT_CONFIG: DelegateConfig = DelegateConfigSchema.parse({
     rate_limit_window_ms: 60_000,
   },
   backends: {
-    controller: {
-      enabled: true,
-      url: "http://127.0.0.1:1234/v1",
-      model_discovery: "lmstudio",
-      context_window_tokens: 32_768,
-      resource_groups: ["controller"],
-      startup_hint: DEFAULT_STARTUP_HINTS.controller,
-      // Keep each value at or below the context the model is actually loaded
-      // with in LM Studio (its -c), or prompts silently overflow the real window.
-      // Muse loaded at >=90K, Gemma at >=32K.
-      context_window_overrides: {
-        "meta/muse-glimmer": 90_000,
-        "google/gemma-4-e4b": 32_768,
-      },
-      model_quality: {
-        fast: [
-          "qwen3-coder-30b-a3b-instruct@4bit",
-          "mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit",
-          "qwen3.6-35b",
-          "google/gemma-4-e4b",
-        ],
-        deep: [
-          "qwen3-coder-30b-a3b-instruct@8bit",
-          "mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit",
-          "meta/muse-glimmer",
-        ],
-      },
-    },
-    worker: {
-      enabled: true,
-      url: "http://127.0.0.1:1235/v1",
-      model_discovery: "lmstudio",
-      context_window_tokens: 32_768,
-      resource_groups: ["worker"],
-      startup_hint: DEFAULT_STARTUP_HINTS.worker,
-      model_quality: {
-        fast: [
-          "qwen3-coder-30b-a3b-instruct@4bit",
-          "mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit",
-          "qwen3.6-35b",
-        ],
-        deep: [
-          "qwen3-coder-30b-a3b-instruct@8bit",
-          "mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit",
-        ],
-      },
-    },
-    cluster: {
-      enabled: true,
-      url: "http://127.0.0.1:8080/v1",
-      model_discovery: "openai",
-      context_window_tokens: 32_768,
-      resource_groups: ["controller", "worker"],
-      startup_hint: DEFAULT_STARTUP_HINTS.cluster,
-      model_quality: {
-        fast: ["mlx-community/Qwen3.5-35B-A3B-4bit"],
-        deep: ["mlx-community/Qwen3.5-122B-A10B-4bit"],
-      },
-    },
+    controller: buildBackendDefinition("controller"),
+    worker: buildBackendDefinition("worker"),
+    cluster: buildBackendDefinition("cluster"),
   },
 });
 
@@ -358,8 +318,7 @@ function mergeFile(
       url: overlay.url ?? base.url,
       model_discovery: overlay.model_discovery ?? base.model_discovery,
       context_window_tokens: overlay.context_window_tokens ?? base.context_window_tokens,
-      context_window_overrides:
-        overlay.context_window_overrides ?? base.context_window_overrides,
+      context_window_overrides: overlay.context_window_overrides ?? base.context_window_overrides,
       resource_groups: overlay.resource_groups ?? base.resource_groups,
       startup_hint: overlay.startup_hint ?? base.startup_hint,
       model_quality: {
