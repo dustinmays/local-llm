@@ -35,7 +35,9 @@
     "delegate": "node dist/cli.js delegate",
     "leases": "node dist/cli.js leases",
     "configure": "node dist/cli.js configure",
-    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:typecheck && pnpm test:offline && pnpm build"
+    "config:render": "pnpm build && node dist/render-config.js",
+    "config:check": "pnpm build && node dist/render-config.js --check",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test:typecheck && pnpm test:offline && pnpm build && node dist/render-config.js --check"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.0.0",

@@ -14,9 +14,14 @@
 LOCAL_LLM_DIR="$HOME/repos/local-llm"
 export LLM_BIN="$LOCAL_LLM_DIR/.venv/bin/llm"
 export LMS_BIN="$HOME/.lmstudio/bin/lms"
-export LLM_SERVE_PORT=1234
-export LLM_MODEL="gemma"      # default fast model for ask/chat
-export LLM_MODEL_HQ="muse"    # heavier reasoning model for askhq/chathq/review
+
+# Port + model aliases come from the generated source of truth (run
+# `pnpm config:render` after editing src/shared-config.ts). Fallbacks keep a
+# fresh shell working even before the first render.
+[[ -r "$LOCAL_LLM_DIR/shell/llm.env" ]] && source "$LOCAL_LLM_DIR/shell/llm.env"
+: "${LLM_SERVE_PORT:=1234}"
+: "${LLM_MODEL:=gemma}"
+: "${LLM_MODEL_HQ:=muse}"
 
 # Warn (but don't block) if LM Studio's server isn't answering.
 _llm_check() {

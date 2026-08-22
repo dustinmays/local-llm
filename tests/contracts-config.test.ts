@@ -200,7 +200,7 @@ describe("configuration", () => {
     expect(BACKEND_ORDER).toEqual(["controller", "worker", "cluster"]);
     expect(config.connect_timeout_ms).toBe(1_000);
     expect(config.health_timeout_ms).toBe(2_000);
-    expect(config.backends.controller.model_discovery).toBe("lmstudio");
+    expect(config.backends.controller.model_discovery).toBe("openai");
     expect(config.backends.worker.model_discovery).toBe("lmstudio");
     expect(config.backends.cluster.model_discovery).toBe("openai");
     expect(config.coordination).toMatchObject({
@@ -213,8 +213,10 @@ describe("configuration", () => {
     });
   });
 
-  it("classifies the current Qwen3.6 local profile as fast", () => {
-    expect(classifyModel(DEFAULT_CONFIG.backends.controller, "qwen3.6-35b")).toBe("fast");
+  it("classifies the controller's oMLX daily drivers by tier", () => {
+    expect(classifyModel(DEFAULT_CONFIG.backends.controller, "gemma-4-e4b-mlx")).toBe("fast");
+    expect(classifyModel(DEFAULT_CONFIG.backends.controller, "qwen3.6-27b-4bit")).toBe("deep");
+    // The Qwen coder profile now lives on the worker (second Mac's LM Studio).
     expect(classifyModel(DEFAULT_CONFIG.backends.worker, "qwen3.6-35b")).toBe("fast");
   });
 

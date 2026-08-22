@@ -132,6 +132,14 @@ run = "pnpm install --frozen-lockfile"
 description = "Compile local-mlx-delegate"
 run = "pnpm build"
 
+[tasks."config:render"]
+description = "Render all config surfaces from src/shared-config.ts"
+run = "pnpm config:render"
+
+[tasks."config:check"]
+description = "Fail if any config surface is stale vs src/shared-config.ts"
+run = "pnpm config:check"
+
 [tasks."delegate:format-check"]
 description = "Check local-mlx-delegate formatting"
 run = "pnpm format:check"

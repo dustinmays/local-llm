@@ -4,6 +4,10 @@ set -euo pipefail
 source "$(cd "$(dirname "$0")/.." && pwd -P)/lib/common.sh"
 cluster_load_config
 
+# Base config (config/opencode.json) and the CLUSTER_MODEL_* ids below are both
+# generated from the single source of truth (src/shared-config.ts) via
+# `pnpm config:render` -> cluster/models.env. This script only merges the
+# per-profile cluster provider models and preserves any local permission policy.
 destination="${OPENCODE_CONFIG_DESTINATION:-$HOME/.config/opencode/opencode.json}"
 mkdir -p "$(dirname "$destination")"
 if [ -f "$destination" ]; then
