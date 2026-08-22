@@ -110,6 +110,7 @@ export const MODELS: ModelEntry[] = [
     servedBy: ["controller"],
     llmAlias: "qwen",
     role: "daily-hq",
+    contextTokens: 131072,
     opencode: { provider: "omlx", name: "Qwen3.6 27B (DFlash)" },
     inference: { quant: "4bit", draft: "qwen3.6-27b-dflash-6bit", preferredServer: "omlx" },
   },
