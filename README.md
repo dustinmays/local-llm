@@ -534,27 +534,39 @@ llm aliases set dictate-fast mlx-community/Qwen3-4B-Instruct-2507-4bit
 
 ## Single-Mac agentic coding with OpenCode
 
-opencode talks to the same LM Studio endpoint (config: `~/.config/opencode/opencode.json`,
+opencode talks to the same oMLX endpoint (config: `~/.config/opencode/opencode.json`,
 mirrored in [`config/opencode.json`](config/opencode.json)).
 
+**Start oMLX** using the menu bar app (recommended) or CLI:
+
 ```bash
-llm-serve            # ← REQUIRED first (see warning below). Or llm-serve-hq for 8-bit.
+omlx start              # Start via Homebrew service (or the oMLX menu bar app)
 cd your/project
-opencode             # interactive TUI (switch models with /models)
+opencode                # interactive TUI (switch models with /models)
 opencode run "review the diff on this branch and list risky changes"   # one-shot
 ```
 
-> **Always `llm-serve`/`llm-serve-hq` before opencode.** If you instead load the model from
-> LM Studio's **menu-bar / GUI "Load Model"**, it uses LM Studio's tiny **8K default context**
-> and opencode fails with _"number of tokens to keep from the initial prompt is greater than
-> the context length."_ Our commands load at 128K / 64K, which fits opencode's prompt + tools
->
-> - files. (To keep the menu-bar workflow, set the model's default context to 131072 in the
->   LM Studio GUI and save it as the default.)
+### oMLX menu bar app setup
 
-- **Model choice:** opencode uses whichever model is loaded (4-bit by default). For
-  walk-away quality, `llm-serve-hq`, or pass `-m lmstudio/qwen3-coder-30b-a3b-instruct@8bit`.
-- **Verified:** Qwen3-Coder's Write/Edit/etc. tool calls execute correctly in opencode.
+1. Download the `.dmg` from [oMLX releases](https://github.com/jundot/omlx/releases)
+2. Drag oMLX.app to Applications and launch it
+3. In the menu bar app, go to **Settings** and set your **model directory**
+   (e.g., `/Users/dustin/omlx-models`)
+4. For local-only access without API keys, edit `~/.omlx/settings.json` and set
+   `"skip_api_key_verification": true`, then restart oMLX
+
+> **oMLX models load lazily** — the first request to a model cold-loads it (~10-30s
+> depending on model size). Subsequent requests to the same model are instant.
+> Unlike LM Studio, oMLX has no tiny default context issue.
+
+DFlash speculative decoding is configured per-model in `~/.omlx/model_settings.json`
+and persists across restarts. For example, `qwen3.6-27b-4bit` with its
+`qwen3.6-27b-dflash-6bit` drafter is configured automatically when you use that model.
+
+- **Model choice:** opencode uses `omlx/qwen3.6-27b-4bit` (deep, DFlash) by default.
+  Switch to `omlx/gemma-4-e4b-mlx` (fast) with `/models` in the TUI or `-m omlx/gemma-4-e4b-mlx`
+  on the command line.
+- **Verified:** Qwen3.6 and Gemma tool calls execute correctly in opencode.
 
 ---
 
