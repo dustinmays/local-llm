@@ -28,5 +28,9 @@
       "models": {}
     }
   },
-  "model": "omlx/qwen3.6-27b-4bit"
+  "model": "omlx/qwen3.6-27b-4bit",
+  "permission": {
+    "websearch": "allow",
+    "webfetch": "allow"
+  }
 }

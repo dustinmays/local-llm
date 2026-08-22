@@ -568,6 +568,29 @@ and persists across restarts. For example, `qwen3.6-27b-4bit` with its
   on the command line.
 - **Verified:** Qwen3.6 and Gemma tool calls execute correctly in opencode.
 
+### Web search and fetch
+
+OpenCode's config includes `websearch` and `webfetch` permissions by default,
+allowing the agent to search the web and fetch URLs when needed. To enable
+Exa as the web search backend, set the `OPENCODE_ENABLE_EXA` environment
+variable. Your mise environment already sets it automatically — run opencode
+through mise, or add it to your shell:
+
+```bash
+# One-time: persist in your shell
+echo 'export OPENCODE_ENABLE_EXA=1' >> ~/.zshrc
+
+# Or use mise's built-in environment (no shell changes needed)
+mise x -- opencode
+```
+
+The `opencode:websearch` mise task prints setup instructions and verifies your
+environment:
+
+```bash
+mise run opencode:websearch
+```
+
 ---
 
 ## Two-Mac distributed MLX cluster

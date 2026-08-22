@@ -63,6 +63,10 @@ function renderOpencodeJson(): string {
       }),
     },
     ...(defaultModel ? { model: `omlx/${defaultModel}` } : {}),
+    permission: {
+      websearch: "allow",
+      webfetch: "allow",
+    },
   };
   return `${JSON.stringify(config, null, 2)}\n`;
 }
