@@ -20,7 +20,9 @@ import {
   CLUSTER_CLEANUP_MODELS,
   llmCliModels,
   MODELS,
+  opencodeDefault,
   opencodeModels,
+  type OpencodeProvider,
   roleAlias,
 } from "./shared-config.js";
 
@@ -36,7 +38,7 @@ const hashNotice = `# ${GENERATED_LINE}`;
 
 function renderOpencodeJson(): string {
   const provider = (
-    key: "lmstudio" | "mlxcluster",
+    key: OpencodeProvider,
     name: string,
     backend: "controller" | "cluster",
     apiKey: string,
@@ -51,17 +53,17 @@ function renderOpencodeJson(): string {
       models,
     };
   };
-  const defaultModel = opencodeModels("lmstudio")[0];
+  const defaultModel = opencodeDefault("omlx");
   const config = {
     "//": GENERATED_LINE,
     $schema: "https://opencode.ai/config.json",
     provider: {
-      lmstudio: provider("lmstudio", "LM Studio (local MLX)", "controller", "lm-studio"),
+      omlx: provider("omlx", "oMLX (local MLX)", "controller", "omlx-local"),
       mlxcluster: provider("mlxcluster", "MLX Cluster (M5 + M4)", "cluster", "local-mlx-cluster", {
         timeout: 600_000,
       }),
     },
-    ...(defaultModel ? { model: `lmstudio/${defaultModel.id}` } : {}),
+    ...(defaultModel ? { model: `omlx/${defaultModel}` } : {}),
   };
   return `${JSON.stringify(config, null, 2)}\n`;
 }

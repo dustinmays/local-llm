@@ -28,11 +28,14 @@ export type BackendSpec = {
 
 export const BACKENDS: Record<BackendName, BackendSpec> = {
   controller: {
-    port: 1234,
-    discovery: "lmstudio",
+    // oMLX (native MLX server) is the daily-driver controller. It serves gemma
+    // (fast) and Qwen 3.6 27B (deep, with DFlash) on :8000. LM Studio is retired
+    // from the delegate; models are discovered via the standard OpenAI catalog.
+    port: 8000,
+    discovery: "openai",
     contextTokens: 32_768,
     resourceGroups: ["controller"],
-    startupHint: "Start the controller with llm-serve or llm-serve-hq.",
+    startupHint: "Start oMLX (omlx start) or the oMLX menu-bar app; models load on first request.",
   },
   worker: {
     port: 1235,
@@ -76,7 +79,7 @@ export type ModelEntry = {
    * controller endpoint. */
   llmAlias?: string;
   /** OpenCode provider + display label, when the model is selectable there. */
-  opencode?: { provider: "lmstudio" | "mlxcluster"; name: string };
+  opencode?: { provider: "omlx" | "mlxcluster"; name: string };
   /** Cluster launch profile slot (cluster/models.env). */
   clusterProfile?: "fast" | "overnight" | "test";
   /** Role markers for shell/OpenCode defaults. */
@@ -89,40 +92,44 @@ export type ModelEntry = {
 // Order matters: derived fast/deep lists preserve this order (see the tests that
 // assert exact array contents for DEFAULT_CONFIG).
 export const MODELS: ModelEntry[] = [
+  // --- controller = oMLX (:8000) daily drivers ---
+  {
+    // Fast, snappy default for ask/chat. Served by oMLX (MLX 4-bit).
+    id: "gemma-4-e4b-mlx",
+    quality: "fast",
+    servedBy: ["controller"],
+    llmAlias: "gemma",
+    role: "daily-driver",
+    opencode: { provider: "omlx", name: "Gemma 4 E4B (fast)" },
+  },
+  {
+    // Reasoning/coding daily driver. Served by oMLX with the DFlash drafter
+    // (~3x decode) enabled per-model in oMLX admin. See docs/… / memory.
+    id: "qwen3.6-27b-4bit",
+    quality: "deep",
+    servedBy: ["controller"],
+    llmAlias: "qwen",
+    role: "daily-hq",
+    opencode: { provider: "omlx", name: "Qwen3.6 27B (DFlash)" },
+    inference: { quant: "4bit", draft: "qwen3.6-27b-dflash-6bit", preferredServer: "omlx" },
+  },
+  // --- worker = second Mac's LM Studio (:1235, offline in single-Mac mode) ---
   {
     id: "qwen3-coder-30b-a3b-instruct@4bit",
     aliases: ["mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit"],
     quality: "fast",
-    servedBy: ["controller", "worker"],
-    opencode: { provider: "lmstudio", name: "Qwen3 Coder 30B A3B (4-bit, fast)" },
+    servedBy: ["worker"],
   },
   {
     id: "qwen3-coder-30b-a3b-instruct@8bit",
     aliases: ["mlx-community/Qwen3-Coder-30B-A3B-Instruct-8bit"],
     quality: "deep",
-    servedBy: ["controller", "worker"],
-    opencode: { provider: "lmstudio", name: "Qwen3 Coder 30B A3B (8-bit, high quality)" },
+    servedBy: ["worker"],
   },
   {
     id: "qwen3.6-35b",
     quality: "fast",
-    servedBy: ["controller", "worker"],
-  },
-  {
-    id: "google/gemma-4-e4b",
-    quality: "fast",
-    servedBy: ["controller"],
-    contextTokens: 32_768,
-    llmAlias: "gemma",
-    role: "daily-driver",
-  },
-  {
-    id: "meta/muse-glimmer",
-    quality: "deep",
-    servedBy: ["controller"],
-    contextTokens: 90_000,
-    llmAlias: "muse",
-    role: "daily-hq",
+    servedBy: ["worker"],
   },
   {
     id: "mlx-community/Qwen3.5-35B-A3B-4bit",
@@ -196,14 +203,26 @@ export function llmCliModels(): { alias: string; modelId: string }[] {
   return entries;
 }
 
+export type OpencodeProvider = "omlx" | "mlxcluster";
+
 /** OpenCode-selectable models for a provider, in registry order. */
-export function opencodeModels(
-  provider: "lmstudio" | "mlxcluster",
-): { id: string; name: string }[] {
-  return MODELS.filter((model) => model.opencode?.provider === provider).map((model) => ({
-    id: model.id,
-    name: (model.opencode as { name: string }).name,
-  }));
+export function opencodeModels(provider: OpencodeProvider): { id: string; name: string }[] {
+  const models: { id: string; name: string }[] = [];
+  for (const model of MODELS) {
+    if (model.opencode?.provider !== provider) continue;
+    models.push({ id: model.id, name: model.opencode.name });
+  }
+  return models;
+}
+
+/** The default OpenCode model id for a provider: the daily-hq model if it lives
+ * there, else the first selectable model. Undefined if the provider has none. */
+export function opencodeDefault(provider: OpencodeProvider): string | undefined {
+  const daily = MODELS.find(
+    (model) => model.role === "daily-hq" && model.opencode?.provider === provider,
+  );
+  const fallback = MODELS.find((model) => model.opencode?.provider === provider);
+  return (daily ?? fallback)?.id;
 }
 
 /** The llm-CLI alias for a role marker (used by the shell env). */

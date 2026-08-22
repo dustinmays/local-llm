@@ -3,10 +3,10 @@
 # Deploy to: ~/Library/Application Support/io.datasette.llm/extra-openai-models.yaml
 # Tells the `llm` CLI how to reach the models LM Studio serves on the controller.
 - model_id: gemma
-  model_name: google/gemma-4-e4b
-  api_base: http://127.0.0.1:1234/v1
+  model_name: gemma-4-e4b-mlx
+  api_base: http://127.0.0.1:8000/v1
   api_key_name: lmstudio
-- model_id: muse
-  model_name: meta/muse-glimmer
-  api_base: http://127.0.0.1:1234/v1
+- model_id: qwen
+  model_name: qwen3.6-27b-4bit
+  api_base: http://127.0.0.1:8000/v1
   api_key_name: lmstudio

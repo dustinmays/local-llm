@@ -41,12 +41,10 @@ describe("shared-config → DEFAULT_CONFIG derivation", () => {
     }
   });
 
-  it("keeps the muse/gemma context overrides on the controller", () => {
-    expect(backendContextOverrides("controller")).toEqual({
-      "google/gemma-4-e4b": 32_768,
-      "meta/muse-glimmer": 90_000,
-    });
-    // worker/cluster have no per-model overrides.
+  it("has no per-model context overrides (all backends use their default)", () => {
+    // oMLX serves gemma + Qwen at the backend default (32768); raise per-model
+    // only if a model is loaded with a larger window in oMLX.
+    expect(backendContextOverrides("controller")).toBeUndefined();
     expect(backendContextOverrides("worker")).toBeUndefined();
     expect(backendContextOverrides("cluster")).toBeUndefined();
   });
@@ -63,14 +61,14 @@ describe("registry helpers", () => {
 
   it("maps llm CLI aliases to model ids via the controller endpoint", () => {
     expect(llmCliModels()).toEqual([
-      { alias: "gemma", modelId: "google/gemma-4-e4b" },
-      { alias: "muse", modelId: "meta/muse-glimmer" },
+      { alias: "gemma", modelId: "gemma-4-e4b-mlx" },
+      { alias: "qwen", modelId: "qwen3.6-27b-4bit" },
     ]);
   });
 
   it("resolves daily-driver role aliases used by the shell env", () => {
     expect(roleAlias("daily-driver")).toBe("gemma");
-    expect(roleAlias("daily-hq")).toBe("muse");
+    expect(roleAlias("daily-hq")).toBe("qwen");
   });
 
   it("keeps every model id unique across the registry", () => {
@@ -112,6 +110,6 @@ describe("rendered surfaces", () => {
     const env = surfaces().find((s) => s.relativePath === "shell/llm.env")?.content ?? "";
     expect(env).toMatch(new RegExp(`export LLM_SERVE_PORT=${String(BACKENDS.controller.port)}`));
     expect(env).toMatch(/export LLM_MODEL=gemma/);
-    expect(env).toMatch(/export LLM_MODEL_HQ=muse/);
+    expect(env).toMatch(/export LLM_MODEL_HQ=qwen/);
   });
 });
