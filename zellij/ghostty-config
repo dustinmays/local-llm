@@ -1,0 +1,16 @@
+# Shell integration: working-dir tracking, prompt marks (jump between
+# previous commands/output), cwd-aware new splits/tabs. Auto-detected for
+# zsh, but pin it explicitly so it doesn't silently regress.
+shell-integration = detect
+shell-integration-features = cursor,sudo,title
+
+# New splits/tabs start in the current pane's working directory.
+window-inherit-working-directory = true
+
+# Global drop-down "quick terminal" — a disposable shell separate from your
+# zellij workspace, so a quick `git status` doesn't disturb your panes.
+keybind = global:cmd+grave_accent=toggle_quick_terminal
+
+# Muscle-memory zoom for a single split (mirrors zellij's own pane
+# fullscreen toggle, ctrl+p f).
+keybind = cmd+shift+z=toggle_split_zoom

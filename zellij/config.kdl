@@ -1,0 +1,19 @@
+// Session persistence: save sessions/tabs/panes so they survive quitting
+// zellij or restarting the machine. Sessions live under
+// ~/Library/Application Support/org.Zellij-Contributors.Zellij/session_info
+// and are resurrected with `zellij attach <name>` or `zellij attach --create <name>`.
+session_serialization true
+
+// Also save pane scrollback content, not just layout/commands, so
+// resurrected panes have their recent output too.
+serialize_pane_viewport true
+scrollback_lines_to_serialize 10000
+
+// How often to auto-save the running session's state (seconds).
+serialization_interval 30
+
+pane_frames true
+mouse_mode true
+copy_on_select true
+
+theme "default"
