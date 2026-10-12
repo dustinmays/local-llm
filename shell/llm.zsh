@@ -19,6 +19,9 @@ export LMS_BIN="$HOME/.lmstudio/bin/lms"
 # `pnpm config:render` after editing src/shared-config.ts). Fallbacks keep a
 # fresh shell working even before the first render.
 [[ -r "$LOCAL_LLM_DIR/shell/llm.env" ]] && source "$LOCAL_LLM_DIR/shell/llm.env"
+# Optional per-machine override (e.g. a work Mac that still uses LM Studio on
+# :1234). Not tracked in git. See docs/LMSTUDIO-WORK-MACHINE.md.
+[[ -r "$HOME/.config/local-llm/env" ]] && source "$HOME/.config/local-llm/env"
 : "${LLM_SERVE_PORT:=1234}"
 : "${LLM_MODEL:=gemma}"
 : "${LLM_MODEL_HQ:=muse}"
@@ -69,5 +72,5 @@ llm-log() { "$LLM_BIN" logs -n "${1:-3}"; }   # show last N logged exchanges
 
 # --- new-terminal reminder (interactive shells only) -----------------------
 if [[ -o interactive ]]; then
-  print -P "%F{244}local-llm ›%f %F{39}ask%f · %F{39}chat%f (gemma)  %F{39}askhq%f · %F{39}chathq%f · %F{39}review%f (muse)  %F{244}— models served by LM Studio%f"
+  print -P "%F{244}local-llm ›%f %F{39}ask%f · %F{39}chat%f (${LLM_MODEL})  %F{39}askhq%f · %F{39}chathq%f · %F{39}review%f (${LLM_MODEL_HQ})  %F{244}— backend :${LLM_SERVE_PORT}%f"
 fi
