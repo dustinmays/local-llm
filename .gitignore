@@ -24,3 +24,6 @@ node_modules/
 dist/
 coverage/
 artifacts/delegate/
+
+# fm benchmark output
+fm-bench/results/
