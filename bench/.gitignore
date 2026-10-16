@@ -1,0 +1,4 @@
+opencode/runs/
+opencode/results-*.tsv
+*.csv
+*.json.out

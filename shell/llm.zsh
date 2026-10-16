@@ -1,15 +1,15 @@
 # local-llm shell helpers — terminal chat/ask against local models.
 # Source this from ~/.zshrc:  source ~/repos/local-llm/shell/llm.zsh
 #
-# Serving:   LM Studio holds the models warm. Start the server + load a model
-#            from the LM Studio app (or `lms load`). These helpers do NOT manage
-#            model lifecycle — they just talk to whatever LM Studio is serving.
+# Serving:   A local OpenAI-compatible server (oMLX, or LM Studio) holds the model
+#            warm. These helpers do NOT manage model lifecycle — they just talk to
+#            whatever is serving on LLM_SERVE_PORT.
 # Frontend:  Simon Willison's `llm` CLI (one-shots, pipes, interactive chat, logging),
-#            pointed at LM Studio's OpenAI endpoint via extra-openai-models.yaml.
+#            pointed at the endpoint via extra-openai-models.yaml.
 #
 # Models (see ~/Library/Application Support/io.datasette.llm/extra-openai-models.yaml):
-#   gemma -> google/gemma-4-e4b   (fast, snappy — default for ask/chat)
-#   muse  -> meta/muse-glimmer    (heavier reasoning — askhq/chathq/review)
+#   one model serves everything; set LLM_MODEL (and optionally LLM_MODEL_HQ) in
+#   ~/.config/local-llm/env. LLM_MODEL_HQ defaults to LLM_MODEL.
 
 LOCAL_LLM_DIR="$HOME/repos/local-llm"
 export LLM_BIN="$LOCAL_LLM_DIR/.venv/bin/llm"
@@ -24,19 +24,19 @@ export LMS_BIN="$HOME/.lmstudio/bin/lms"
 [[ -r "$HOME/.config/local-llm/env" ]] && source "$HOME/.config/local-llm/env"
 : "${LLM_SERVE_PORT:=1234}"
 : "${LLM_MODEL:=gemma}"
-: "${LLM_MODEL_HQ:=muse}"
+: "${LLM_MODEL_HQ:=$LLM_MODEL}"
 
-# Warn (but don't block) if LM Studio's server isn't answering.
+# Warn (but don't block) if the local server isn't answering.
 _llm_check() {
   curl -s -m 1 -o /dev/null "http://localhost:${LLM_SERVE_PORT}/v1/models" 2>/dev/null && return 0
-  print -u2 -P "%F{214}local-llm ›%f LM Studio server not responding on :${LLM_SERVE_PORT} — start it in the app (or: lms server start)."
+  print -u2 -P "%F{214}local-llm ›%f local LLM server not responding on :${LLM_SERVE_PORT} — start it (oMLX: brew services start omlx; LM Studio: lms server start)."
   return 1
 }
 
 # --- one-shots -------------------------------------------------------------
 # Fast default.  Usage:  ask "explain X"   |   cat f.py | ask "review this"
 ask()   { _llm_check; "$LLM_BIN" -m "$LLM_MODEL"    "$@"; }
-# Heavier reasoning (Muse Glimmer).
+# Same model unless LLM_MODEL_HQ is overridden.
 askhq() { _llm_check; "$LLM_BIN" -m "$LLM_MODEL_HQ" "$@"; }
 # Continue the LAST conversation.
 askc()  { "$LLM_BIN" -c "$@"; }
@@ -45,7 +45,7 @@ askc()  { "$LLM_BIN" -c "$@"; }
 chat()   { _llm_check; "$LLM_BIN" chat -m "$LLM_MODEL"    "$@"; }
 chathq() { _llm_check; "$LLM_BIN" chat -m "$LLM_MODEL_HQ" "$@"; }
 
-# --- code review (Muse + reviewer system prompt) ---------------------------
+# --- code review (reviewer system prompt) ---------------------------
 # Usage:  git diff | review        |        review < path/to/file.py
 review() {
   _llm_check
@@ -72,5 +72,5 @@ llm-log() { "$LLM_BIN" logs -n "${1:-3}"; }   # show last N logged exchanges
 
 # --- new-terminal reminder (interactive shells only) -----------------------
 if [[ -o interactive ]]; then
-  print -P "%F{244}local-llm ›%f %F{39}ask%f · %F{39}chat%f (${LLM_MODEL})  %F{39}askhq%f · %F{39}chathq%f · %F{39}review%f (${LLM_MODEL_HQ})  %F{244}— backend :${LLM_SERVE_PORT}%f"
+  print -P "%F{244}local-llm ›%f %F{39}ask%f · %F{39}chat%f · %F{39}review%f · %F{39}dictate%f (${LLM_MODEL})  %F{244}— backend :${LLM_SERVE_PORT}%f"
 fi
