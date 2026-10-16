@@ -130,6 +130,7 @@ beyond the limit queue rather than fail. This is also the cap for agent deferral
 sharing the server with a foreground session.
 
 Pi: custom provider `omlx` added to `~/.pi/agent/models.json` (baseUrl `http://127.0.0.1:1234/v1`, model
-`Qwen3.8-27B-4bit`, contextWindow 65536); smoke tests still to run.
+`Qwen3.8-27B-4bit`, contextWindow 65536). The Hermes `local-pi-defer` skill was validated against it (reported by Dustin,
+2026-10-16); the skill itself lives in the Hermes profile, not this repo.
 
 Not yet measured: agent runs that approach 96k in a real session.
