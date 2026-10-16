@@ -59,6 +59,38 @@ Gemma 4 E4B passed 5/5 in a single-rep opencode smoke test; it has since been re
 - **Gotchas:** LM Studio defaults to an 8192 context, too small for opencode (its prompt + tools exceed it). `omlx` process title is `omlx-server`, so `pkill -f "omlx serve"` misses it. oMLX also scans the Hugging Face cache by default (`hf_cache_enabled`).
 - **KV math for Qwen3.8-27B (from config.json):** 16 full-attention layers x 4 KV heads x 256 head_dim x 2 (K,V) x 2 bytes = 64 KiB/token (3 GiB at 48k, 8 GiB at 128k, 16 GiB at 262k) plus a fixed ~150 MB linear-attention state. Theoretical; the measured ceiling is recorded below once run.
 
-## Context ceiling
+## Context ceiling (measured 2026-10-16)
 
-_Pending: measured with `bench/mem/memlog.sh` on a quiet machine (see commit history)._
+Qwen3.8-27B-4bit + DFlash2 drafter on oMLX 0.7.1rc1, 48 GB Mac, thinking on, temperature 0, one request at a time,
+Vivaldi/Slack/Music open, swap already at 4.6 GB. Method: `bench/ctx_ceiling.py` (random hex log lines + one planted
+`MAGIC_TOKEN`, ask for it) with `bench/mem/memlog.sh` logging once per second. Cold prompts (no prefix-cache hit).
+
+| Prompt | Time to first token | Needle | Peak wired | Swap | Pressure | Min free |
+| --- | --- | --- | --- | --- | --- | --- |
+| 16k | 36 s | found | 28.8 GB | flat | 1 (normal) | 30 % |
+| 32k | 75 s | found | 30.0 GB | flat | 1 | 26 % |
+| 48k | 120 s | found | 31.4 GB | flat | 1 | 20 % |
+| 64k | 161 s | found | 31.4 GB | flat | 1 | 20 % |
+| 96k | 279 s | found | 31.8 GB | flat | 1 | 17 % |
+| 128k | 432 s | found | **37.0 GB** | **+4.1 GB (4.6 -> 8.7)** | **2 (warn)** | 8 % |
+
+Baseline before the first request: 23.2 GB wired (weights + drafter loaded).
+
+**Recommended ceiling: ~96k tokens (set opencode `limit.context` to 98304), comfortable working range 64k.**
+
+- Every rung retrieved the needle, so quality is not what limits it; memory is.
+- 128k pushed wired memory to the ~37 GB Metal cap (`max_recommended_working_set_size` 37.4 GB), grew swap by 4 GB and
+  hit pressure level 2. It works but stalls the rest of the machine, so treat it as off-limits.
+- At ~94-96k oMLX's own prefill guard starts logging `Prefill above max_bytes ... 28.1GB > 27.8GB` (about 300 warnings in
+  this run, from ~94k tokens up; the "balanced" tier ceiling is ~27.8 GB). 96k is therefore the practical limit.
+- Prefill is slow when cold: ~470 tok/s early, slowing with length (96k = 4.7 min, 128k = 7.2 min). Prefix reuse is what
+  makes long agent sessions usable; the prefix cache was **not** exercised by this test.
+- Decode stayed at 16-33 tok/s with DFlash across rungs (16 tok/s at 128k).
+- KV growth is smaller than the 64 KiB/token estimate suggests for the first 96k (wired rose ~3 GB from 16k to 96k vs
+  ~5 GB predicted), but oMLX's transient prefill memory dominates near the limit.
+- `max_context_window: 32768` in `~/.omlx/settings.json` did **not** block longer prompts.
+- Free RAM matters: this ran with ~4.6 GB of swap already in use. A browser with many tabs shrinks the margin, so close
+  heavy tabs before long-context agent runs.
+
+Not yet measured: prefix-cache hit behavior on repeated long prompts, two concurrent long requests, and the opencode
+task set on oMLX + DFlash.
