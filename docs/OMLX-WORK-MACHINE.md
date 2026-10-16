@@ -48,7 +48,19 @@ Chat, Qwen3.8-27B, thinking on, temperature 0:
 
 DFlash acceptance was ~72-85 % (about 3 tokens per cycle). Answers matched or differed only in wording (spot-checked C2, C12). C8 (import/TypeError) exhausts 2048 output tokens while thinking, with or without the drafter.
 
-Opencode task set (2 reps each) on **LM Studio + Qwen3.8-27B**: 10/10 pass; avg tool calls / seconds per task: create-file 1.5 / 32, fix-failing-test 15 / 443, rename 11 / 138, find-secret 4 / 43, edit-config+run 5.5 / 59. Run under heavy swap (12 GB), so treat times as worst case. Not yet rerun on oMLX + DFlash.
+Opencode task set (2 reps each, `bench/opencode/run.sh`), avg tool calls / seconds per task:
+
+| Task | LM Studio + Qwen3.8 | oMLX + Qwen3.8 + DFlash2 |
+| --- | --- | --- |
+| create file | 1.5 / 32 s | 2 / 27 s |
+| fix failing test | 15 / 443 s | 6 / **39 s** |
+| multi-file rename | 11 / 138 s | 9.5 / 51 s |
+| find buried secret | 4 / 43 s | 3 / 25 s |
+| edit config + run script | 5.5 / 59 s | 4 / 30 s |
+| **pass rate** | 10/10 | **10/10**, 0 tool errors |
+
+The LM Studio run was under heavy swap (12 GB), so its times are a worst case; the oMLX run had 8 GB of leftover swap but
+pressure stayed normal (peak wired 31.5 GB). Opencode context was capped at 98304 for the oMLX run.
 
 Gemma 4 E4B passed 5/5 in a single-rep opencode smoke test; it has since been removed.
 
@@ -92,5 +104,16 @@ Baseline before the first request: 23.2 GB wired (weights + drafter loaded).
 - Free RAM matters: this ran with ~4.6 GB of swap already in use. A browser with many tabs shrinks the margin, so close
   heavy tabs before long-context agent runs.
 
-Not yet measured: prefix-cache hit behavior on repeated long prompts, two concurrent long requests, and the opencode
-task set on oMLX + DFlash.
+### Prefix cache (`bench/prefix_cache.py`, 32k-token prefix)
+
+| Request | Time to first token |
+| --- | --- |
+| 1. cold | 74.1 s |
+| 2. identical repeat | **1.0 s** |
+| 3. same prefix, new question at the end | **3.4 s** |
+
+The oMLX prefix cache works for this hybrid model: repeated or growing agent prompts skip the slow prefill, so the 4-5
+minute cold prefill at 96k is a one-time cost per session. Keep the start of the prompt stable (no timestamps or
+reordered tools near the top).
+
+Not yet measured: two concurrent long requests, and agent runs that approach 96k in a real session.
