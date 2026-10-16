@@ -116,4 +116,20 @@ The oMLX prefix cache works for this hybrid model: repeated or growing agent pro
 minute cold prefill at 96k is a one-time cost per session. Keep the start of the prompt stable (no timestamps or
 reordered tools near the top).
 
-Not yet measured: two concurrent long requests, and agent runs that approach 96k in a real session.
+### Concurrency (`bench/concurrent_long.py`, 2 x 48k cold prompts at once)
+
+| Request | Time to first token |
+| --- | --- |
+| A | 117 s (same as running alone, ~120 s) |
+| B | 235 s (waits for A's prefill) |
+
+Prefills are effectively serialized, so concurrency adds latency, not memory: peak wired 31.7 GB, pressure normal, no
+swap growth. `scheduler.max_concurrent_requests` in `~/.omlx/settings.json` was lowered from 8 to **2** (backup
+`settings.json.bak-pre-concurrency`; edit with the service stopped, because oMLX rewrites the file on exit). Requests
+beyond the limit queue rather than fail. This is also the cap for agent deferrals (Hermes `local-pi-defer`, Pi/opencode)
+sharing the server with a foreground session.
+
+Pi: custom provider `omlx` added to `~/.pi/agent/models.json` (baseUrl `http://127.0.0.1:1234/v1`, model
+`Qwen3.8-27B-4bit`, contextWindow 65536); smoke tests still to run.
+
+Not yet measured: agent runs that approach 96k in a real session.
